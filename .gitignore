@@ -1,0 +1,32 @@
+# Model weights and ONNX external data
+models/**/*
+!models/**/.gitkeep
+
+# Built TensorRT engines and timing caches
+engines/**/*
+!engines/.gitkeep
+engine/timing_cache.bin
+engine/*.cache
+
+# Benchmark and profile outputs
+bench/results/**/*
+!bench/results/.gitkeep
+bench/**/*.json
+bench/**/*.csv
+
+# Plugin build artifacts
+plugin/build/
+plugin/**/*.so
+
+# Kernel build artifacts
+kernels/build/
+kernels/**/*.o
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE / OS
+.DS_Store
+*.swp
