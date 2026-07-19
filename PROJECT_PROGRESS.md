@@ -2,7 +2,7 @@
 
 > **One-line story (target):** Built and profiled a TensorRT engine for Llama-3.2-3B on an NVIDIA L4, identified the decode-time MLP GEMM as the bottleneck, and replaced TensorRT's auto-selected tactic with a custom CUTLASS FP8 kernel (IPluginV3 plugin), achieving measurable per-token latency reduction at parity accuracy, validated with Nsight Compute.
 
-**Last updated:** 2026-06-27  
+**Last updated:** 2026-07-19  
 **GPU:** NVIDIA L4 (Ada Lovelace, SM89, 24 GB)  
 **Stack:** CUDA 12.6 · TensorRT 10.4 · CUTLASS 3.x · Ubuntu 24.04 (Docker)
 
@@ -14,8 +14,8 @@
 |-------|--------|-------|
 | Environment (Docker, CUDA, TRT, CUTLASS, Nsight) | **Done** | See [Environment setup](#1-environment-setup) |
 | Project layout + baseline scripts | **Done** | ONNX → trtexec workflow scaffolded |
-| Baseline engine build (ONNX → `.engine`) | **In progress** | Download + build pending on your machine |
-| Profile (nsys/ncu, timing cache, tactic names) | Pending | |
+| Baseline engine build + benchmark (decode + prefill) | **Done** | Clean ONNX export, FP16 engines, op-wise + roofline analysis for both regimes |
+| Profile (nsys/ncu, timing cache, tactic names) | **Next** | See [Profile phase plan](#profile-phase-plan-whats-next) below |
 | Tactic swap demo (ITimingCache::update) | Pending | |
 | Microbenchmark (single MatMul network) | Pending | |
 | Custom CUTLASS FP8 kernel | Pending | |
@@ -179,13 +179,16 @@ General libraries (cuBLAS, TensorRT default tactics) are tuned for large `M`. LL
 
 ### Baseline engine build
 
-| Metric | Decode (M=1) | Prefill (e.g. seq=512) |
+| Metric | Decode (M=1) | Prefill (M=512) |
 |--------|----------------|-------------------------|
 | Build time | | |
-| Engine size | | |
-| trtexec latency (ms) | | |
-| Dominant layer (from profile) | | |
-| Auto-selected tactic name | | |
+| Engine size | 6136 MiB | |
+| trtexec latency (ms) | 30.24 ms/token (mean), compute 28.10 ms | 83.995 ms/step (mean), compute 76.305 ms |
+| Dominant layer (from profile) | `mlp/up_proj` (31.6%), `mlp/gate_proj` (22.4%) | `mlp/gate_proj`(fused, 19.0%), `mlp/up_proj` (18.7%) |
+| Bottleneck resource | HBM bandwidth (memory-bound) | Tensor Core FLOPs (compute-bound, but only marginally — see below) |
+| Achieved bandwidth vs. peak | `up_proj` 119 GB/s (~40% of ~300 GB/s BW) | `up_proj` 122.5 GB/s (~41% of ~300 GB/s BW) |
+| Achieved compute vs. peak | `up_proj` ~0.1 TFLOP/s (~0.1% of ~121 TFLOP/s FP16 — not the binding constraint) | `up_proj` 51.04 TFLOP/s (~42% of ~121 TFLOP/s FP16) |
+| Auto-selected tactic name | pending (needs editable timing cache / verbose build log) | pending |
 
 ### After custom kernel / plugin
 
@@ -229,7 +232,7 @@ General libraries (cuBLAS, TensorRT default tactics) are tuned for large `M`. LL
 
 ## Open questions / risks
 
-- [ ] ONNX graph input names may include `past_key_values.*` — shape flags must match `inspect_onnx.py` output.
+- [x] ONNX graph input names include `past_key_values.*` + `position_ids` — shape flags match `inspect_onnx.py` / `baseline_decode.env`.
 - [ ] ONNX graph MatMul layout may differ from TensorRT-LLM fused GEMMs — microbenchmark still required for clean comparison.
 - [ ] FP8 engine variant — build after FP16 baseline is stable.
 - [ ] Full tokens/sec needs Python TRT runner (tokenizer + KV loop), not `trtexec` alone.
@@ -282,6 +285,134 @@ Example entry:
 Summed across all 28 layers: MLP GEMMs alone (`gate`+`up`+`down`) ≈ `(0.4235+0.2975+0.2132) × 28 ≈ 26.1 ms` — roughly **70% of total decode step latency**, confirming the plan's thesis: the MLP projections are the compute-dominant decode GEMM, with `up_proj`/`gate_proj` (3072→8192, the wider matmul) costing more than `down_proj` (8192→3072). `lm_head` is a distant second at 8.1% (single occurrence, not per-layer, and out of scope — it's a different shape/purpose than the repeated MLP GEMM).
 
 **Learning:** `--dumpProfile` + `--exportTimes` together in one `trtexec` run is a known incompatible combo — always pair with `--separateProfileRun` when both outputs are needed. Also: don't trust a wrapper script's success message without a file-existence check — `trtexec` returning `PASSED` only means the requested run completed, not that every requested output artifact was written.
+
+### 2026-07 — Decode op-wise breakdown + roofline (memory-bound) analysis
+
+**Op-wise GPU time, accumulated across all 28 layers** (from `decode_profile.json`, 334 profiled iterations, batch=1/past=128, `--fp16`):
+
+| Op group | ms/step | % of step | #kernels | avg ms/kernel |
+|---|---|---|---|---|
+| `mlp.up_proj` | 11.8483 | 31.6% | 28 | 0.42315 |
+| `mlp.gate_proj` | 8.3944 | 22.4% | 28 | 0.29980 |
+| `mlp.down_proj` | 5.9953 | 16.0% | 28 | 0.21412 |
+| `attn.qkv_proj` (fused) | 3.8233 | 10.2% | 28 | 0.13655 |
+| `lm_head` | 3.0363 | 8.1% | 1 | 3.03626 |
+| `attn.o_proj` | 2.3748 | 6.3% | 28 | 0.08481 |
+| elementwise/norm/fused-misc (Myelin `__myl*`) | 1.4963 | 4.0% | 199 | 0.00752 |
+| `attn` score/context matmuls (Q@Kᵀ, softmax@V) | 0.5495 | 1.5% | 56 | 0.00981 |
+
+MLP GEMMs alone = **69.9%** of the step; all projection GEMMs + `lm_head` = **94.5%**. Attention's actual matmuls are negligible (1.5%) — almost everything is linear-projection GEMM time. Confirmed from `decode_timing.json` (357 clean e2e runs, no profiler overhead): mean per-token latency **30.24 ms** (compute 28.10 ms, H2D 0.96 ms, D2H 1.17 ms), extremely tight distribution (p99 within 0.7% of median) — a trustworthy baseline number.
+
+**Bandwidth-floor / roofline analysis — why decode is memory-bound and prefill won't be**
+
+Computed implied HBM bandwidth per GEMM (`weight_bytes / measured_time`) against the L4's ~300 GB/s peak:
+
+| GEMM | Achieved bandwidth | % of L4 peak |
+|---|---|---|
+| `up_proj` (K=3072,N=8192) | 119 GB/s | ~40% |
+| `gate_proj` (same shape) | 169 GB/s | ~56% |
+| `down_proj` (K=8192,N=3072) | 236 GB/s | ~79% |
+| `lm_head` (K=3072,N=128256) | 260 GB/s | ~87% |
+
+`up_proj`/`gate_proj` leave 2–2.5x bandwidth on the table relative to what `down_proj` already achieves on this same GPU — the clearest, most actionable target. Total weight bytes streamed per decode step ≈ 6.25 GB → a naive floor of `6.25 GB / 300 GB/s ≈ 21 ms` vs. the measured 28.10 ms compute — i.e. today's baseline is running at roughly 75% of the theoretical weight-streaming floor.
+
+**Rigorous justification via the roofline model** (why decode is memory-bound, and why prefill flips to compute-bound at larger `M`):
+
+- `T_compute = FLOPs / peak_compute`, `T_memory = Bytes / peak_bandwidth`; achievable time is `max(T_compute, T_memory)` — whichever resource takes longer is the bottleneck.
+- Comparing the two reduces to comparing **arithmetic intensity** (`FLOPs/Byte`) against the GPU's own **ridge point** (`peak_compute / peak_bandwidth`, ≈403 FLOP/byte for L4's ~121 TFLOP/s FP16 Tensor Core peak ÷ ~300 GB/s).
+- At decode (M=1): weight bytes (50.33 MB, fixed by `K×N`) dominate; activation/output bytes are ~0.02 MB — negligible. Intensity ≈ **1 FLOP/byte**, ~400x below the ridge → deep in memory-bound territory. `T_compute≈0.41 µs` vs `T_memory≈168 µs` — compute finishes almost instantly and idles.
+- At prefill (M=512, the config's opt point): weight bytes are **unchanged** (still 50.33 MB — loaded once regardless of M, reused across all M rows by a well-tiled kernel), but compute scales **linearly** with M (512x). Memory traffic grows only ~1.23x (50.33 MB → 61.87 MB, from added activation+output bytes) while FLOPs grow 512x. Intensity ≈ **417 FLOP/byte** — just past the ridge → compute-bound. `T_compute≈213 µs` ≈ `T_memory≈206 µs` (near the crossover, consistent with M=512 being chosen as the opt/breakeven shape).
+- **Key insight for the write-up:** the weight matrix's memory cost is M-independent (paid once, amortized across all M rows), which is exactly why more tokens processed per GEMM call (larger M) shifts the bottleneck from memory to compute — this is the formal reason decode and prefill need fundamentally different kernel strategies, and why this project scopes its FP8/CUTLASS kernel claims to the decode (low-M, memory-bound) regime specifically.
+- Also clarified: the ridge point/floor is a *hard* bound on aggregate whole-chip bandwidth — it cannot be beaten by running independent kernels concurrently on separate streams. Concurrency (e.g. fusing `gate_proj`+`up_proj` into one N=16384 GEMM) is a way to *reach* the floor a single under-saturating skinny kernel misses, not a way to go below it.
+
+### 2026-07 — Prefill benchmark: op-wise breakdown + compute-bound confirmation
+
+Ran `./bench/trtexec_baseline.sh prefill` (batch=1, seq_len=512 opt, past=0, `--fp16`). Both `prefill_profile.json` (136 iterations) and `prefill_timing.json` (133 iterations) captured cleanly in one run (the `--separateProfileRun` fix from the decode benchmark applies here too).
+
+**Gotcha found during analysis:** naively reusing the decode-benchmark's name-matching classifier silently miscounted `gate_proj`. At decode, `gate_proj`'s MatMul is a standalone kernel; at prefill (M=512), TensorRT's Myelin compiler **fuses `gate_proj`'s GEMM directly into its SiLU-activation epilogue and the elementwise multiply against `up_proj`'s output**, producing one kernel named `__myl_FcNegExpAddDivMulMul` (`Fc` = FullyConnected/GEMM signature inside Myelin's fused-op names). A substring classifier looking for `"gate_proj"` in the kernel name misses this entirely and dumps 19% of the step into a generic "elementwise/misc" bucket. **Learning: TensorRT's fusion strategy itself changes with input shape, not just tactic selection — any kernel-name-based aggregation script needs to be re-validated per shape, not assumed stable across benchmarks.**
+
+**Corrected op-wise breakdown** (accumulated across 28 layers):
+
+| Op group | ms/step | % of step | #kernels |
+|---|---|---|---|
+| `mlp.gate_proj`+SiLU+mul (fused) | 14.34 | 19.0% | 28 |
+| `mlp.up_proj` | 14.14 | 18.7% | 28 |
+| `mlp.down_proj` | 13.62 | 18.0% | 28 |
+| elementwise/norm/RoPE (true misc) | 10.76 | 14.2% | 226 |
+| `attn.qkv_proj` (fused) | 8.10 | 10.7% | 28 |
+| `lm_head` | 6.44 | 8.5% | 1 |
+| `attn.o_proj` | 5.31 | 7.0% | 28 |
+| `attn` score/context matmuls (Q@Kᵀ, softmax@V) | 2.81 | 3.7% | 56 |
+| **Total** | **75.51** | **100%** | 425 |
+
+MLP GEMMs = **55.7%** of the step (down from decode's 69.9%) — attention's combined share (qkv+o_proj+score+context) grew to **~21.4%** vs decode's ~11.1%, exactly as predicted: Q@Kᵀ/softmax@V scale with `sequence_length²`, so they become proportionally larger at seq_len=512 than at decode's seq_len=1.
+
+**End-to-end timing** (`prefill_timing.json`): mean latency **83.995 ms**, compute **76.305 ms**. H2D shrinks to 0.213 ms (vs decode's 0.96 ms — far less KV cache to upload with `past=0`), but D2H jumps to **7.478 ms** (6.4x decode's 1.17 ms) — much larger outputs at this shape: `logits` is `512×128256` vs decode's `1×128256`, and all 56 `present.*` KV outputs now carry `total_sequence_length=512` instead of 129.
+
+**Compute-bound confirmation (the roofline prediction, empirically verified):**
+
+| GEMM | Achieved TFLOP/s | % of L4's ~121 TFLOP/s FP16 peak |
+|---|---|---|
+| `up_proj` | 51.04 | 42.2% |
+| `gate_proj` (fused) | 50.31 | 41.6% |
+| `down_proj` | 53.00 | 43.8% |
+
+All three land in a tight **~42–44% of peak compute** band — a sharp contrast to decode's bandwidth utilization, which varied widely (40% to 87%) across the same three GEMMs. This consistency is itself informative: at prefill, the bottleneck is uniformly the Tensor Cores' raw throughput regardless of which GEMM shape you pick (`K↔N` swapped for `down_proj` doesn't change the ratio much), whereas at decode the bottleneck (HBM bandwidth) is much more sensitive to how well a specific kernel's tiling saturates the memory bus. Confirms the earlier roofline math (decode intensity ≈1 FLOP/byte, ~400x below L4's ~403 FLOP/byte ridge; prefill intensity ≈417 FLOP/byte, just past the ridge) was the right predictive model.
+
+**Project implication:** since prefill's ~42–44% compute utilization is itself real headroom, a "prefill-mode" kernel would target *compute-efficiency* (occupancy, Tensor Core MMA shape/pipelining), a completely different optimization axis than decode's *bandwidth-efficiency* target — reinforcing why this project scopes its custom CUTLASS/FP8 kernel claims specifically to the decode (memory-bound, low-M) regime, per the original plan.
+
+**Bandwidth utilization at prefill (the missing half of the picture):** computed the same way as decode's bandwidth analysis — `total_bytes_moved / measured_time` — but now including activation + output bytes, since at M=512 they're no longer negligible (weight 50.33 MB, activation 3.15–8.39 MB, output 3.15–8.39 MB depending on which side is `K` vs `N`, total ≈61.87 MB per GEMM):
+
+| GEMM | Total bytes moved | Achieved bandwidth | % of L4's ~300 GB/s peak |
+|---|---|---|---|
+| `up_proj` | 61.87 MB | 122.5 GB/s | 40.8% |
+| `gate_proj` (fused) | 61.87 MB | 120.8 GB/s | 40.3% |
+| `down_proj` | 61.87 MB | 127.2 GB/s | 42.4% |
+
+**Key finding:** at prefill, bandwidth utilization (~40–42%) and compute utilization (~42–44%) sit in nearly the *same* band — expected, since prefill's arithmetic intensity (~417 FLOP/byte) sits just barely past the L4's ridge point (~403 FLOP/byte). Being this close to the crossover means neither resource is decisively idle waiting on the other; the kernel leaves similar-sized headroom on both simultaneously. This is a sharp contrast to decode, where the two metrics diverge sharply — bandwidth utilization varies 40–87% while compute utilization is a negligible 0.1–0.2% of peak (intensity ~1 FLOP/byte, 400x below the ridge, so compute finishes almost instantly and idles — "compute utilization" isn't even the operative metric there). Having both numbers for prefill, and seeing them converge near the ridge, is a good sanity check that the memory-bound/compute-bound classification was applied correctly to each regime.
+
+**Decode vs. prefill — side-by-side summary** (baseline complete):
+
+| | Decode (M=1, past=128) | Prefill (M=512, past=0) |
+|---|---|---|
+| Mean latency | 30.24 ms/token | 83.995 ms/step |
+| GPU compute | 28.10 ms | 76.305 ms |
+| MLP GEMM share | 69.9% | 55.7% |
+| Attention share | ~11.1% | ~21.4% (grows with seq_len², as predicted) |
+| Bottleneck | HBM bandwidth (memory-bound) | Tensor Core FLOPs (marginally compute-bound) |
+| `up_proj` bandwidth vs. peak | 119 GB/s (~40% of ~300 GB/s) | 122.5 GB/s (~41% of ~300 GB/s) |
+| `up_proj` compute vs. peak | ~0.1 TFLOP/s (~0.1% — not binding) | 51.04 TFLOP/s (~42% of ~121 TFLOP/s) |
+| Optimization target | Bandwidth efficiency (skinny GEMV-like shapes) | Compute efficiency (different axis — out of project scope) |
+
+**Baseline phase conclusion:** both reference points are captured. Decode MLP GEMMs (`up_proj`/`gate_proj` at 3072→8192) are the priority optimization target — memory-bound, leaving 2–2.5× bandwidth headroom vs. what `down_proj` already achieves on the same GPU. Prefill confirms the roofline model and reinforces decode-only scoping for the custom CUTLASS/FP8 kernel work.
+
+### Profile phase plan (what's next)
+
+With baseline profiling complete, the next milestone is capturing the **exact TensorRT tactic** TensorRT auto-selected for the dominant decode GEMM (`up_proj`/`gate_proj`) — the concrete number the custom kernel must beat.
+
+**Step 1 — Decode forward pass setup (already in place)**
+
+No new tokenizer/KV-loop harness is needed for tactic capture. `bench/trtexec_baseline.sh decode` loads `engines/baseline_decode.engine`, sets all 58 dynamic inputs via `--shapes=` from `engine/configs/baseline_decode.env` (`input_ids:1x1`, `attention_mask:1x129`, `position_ids:1x1`, `past_key_values.*:1x8x128x128`), and fills tensors with random data of the correct shape/dtype. Kernel timing depends on shapes/strides/dtypes, not semantic token values — this is sufficient for Nsight and timing-cache inspection. A real Python TRT runner (tokenizer + KV loop feeding `present.*` → `past_key_values.*`) is deferred to the `validate` phase for correctness/end-to-end checks.
+
+**Step 2 — Editable timing cache (`BuilderFlag::kEDITABLE_TIMING_CACHE`)**
+
+Normal `--timingCacheFile=` (already used in `build_engine.sh`) speeds rebuilds by reusing recorded tactic winners, but entries are opaque — you cannot read which tactic won or force a swap. **`kEDITABLE_TIMING_CACHE`** makes the cache inspectable and mutable via the TensorRT Python API (`ITimingCache`):
+
+- **Inspect:** iterate cache entries to get the tactic hash/name and measured latency per layer/shape — answers "what did TensorRT pick for `up_proj` at decode?"
+- **Mutate:** call `ITimingCache::update(...)` to force a different tactic that was considered during the search, then rebuild — this is the `tactic-swap` demo before writing a custom kernel.
+
+Not exposed as a `trtexec` CLI flag — requires a short Python builder script (extend or parallel to `build_engine.sh`).
+
+**Step 3 — Nsight profiling**
+
+Wrap the same decode benchmark command:
+
+- `nsys profile -o bench/results/decode_trace trtexec --loadEngine=... --shapes=...` — timeline, kernel names, stream overlap
+- `ncu --set full -k <up_proj_kernel_regex> trtexec ...` — occupancy, memory throughput, Tensor Core utilization on the dominant GEMM kernel
+
+**Step 4 — Record baseline-to-beat**
+
+Fill in the `Auto-selected tactic name` row in the Results table and the Nsight evidence table. This number anchors the microbenchmark (`micronet`) and custom-kernel (`kernel`/`plugin`) work.
 
 ---
 

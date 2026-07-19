@@ -6,7 +6,7 @@ Update the checkboxes as you go — this file is the source of truth across sess
 
 - [x] **env** — Provision L4 (cloud), install CUDA 12.x, TensorRT 10.x, CUTLASS 3.x,
       Nsight Compute/Systems; verify FP8 GEMM sample runs on SM89.
-- [ ] **baseline** — Download Llama-3.2-3B-Instruct, build a baseline TensorRT engine
+- [x] **baseline** — Download Llama-3.2-3B-Instruct, build a baseline TensorRT engine
       (FP16/FP8), run a latency/throughput benchmark for prefill and decode.
       - [x] Docker environment verified (TensorRT, trtexec, CUTLASS, Nsight, PyTorch+CUDA, build toolchain all pass)
       - [x] Project layout created (`engine/`, `models/`, `engines/`, `bench/`, `kernels/`, `plugin/`, `eval/`)
@@ -17,25 +17,28 @@ Update the checkboxes as you go — this file is the source of truth across sess
       - [x] Ran `./bench/trtexec_baseline.sh decode` — `--exportTimes` was silently empty due to a `--dumpProfile`/e2e-timing conflict (fixed: added `--separateProfileRun`); `decode_profile.json` captured successfully, per-layer MLP GEMM dominance already confirmed (see `PROJECT_PROGRESS.md`)
       - [x] Re-ran with the fix — both `decode_profile.json` and `decode_timing.json` now captured
       - [x] Analyzed decode results: e2e latency 30.24 ms/token (mean), compute 28.10 ms; MLP GEMMs = 69.9% of step (`up_proj` 31.6%, `gate_proj` 22.4%, `down_proj` 16.0%); implied HBM bandwidth `up_proj`=119 GB/s (~40% of L4's ~300 GB/s peak) vs. `down_proj`=236 GB/s (~79%) — confirms `up_proj`/`gate_proj` as the priority optimization target, with a concrete fusion idea noted (combine `gate_proj`+`up_proj` into one N=16384 GEMM) (see `PROJECT_PROGRESS.md`)
-      - [ ] Build + benchmark the `prefill` engine (`./engine/build_engine.sh prefill` then `./bench/trtexec_baseline.sh prefill`) — see next-steps note below
-- [ ] **prefill-profile** — Profile the prefill stage as a second reference point (compute-bound,
+      - [x] Roofline/arithmetic-intensity analysis: derived why decode (M=1, ~1 FLOP/byte) is deep memory-bound vs. L4's ridge point (~403 FLOP/byte), and why prefill (M=512, ~417 FLOP/byte) crosses into compute-bound — weight bytes are M-independent (paid once) while FLOPs scale linearly with M; formalizes the project's decode-only scoping (see `PROJECT_PROGRESS.md`)
+      - [x] Build + benchmark the `prefill` engine (`./engine/build_engine.sh prefill` then `./bench/trtexec_baseline.sh prefill`)
+- [x] **prefill-profile** — Profile the prefill stage as a second reference point (compute-bound,
       contrasts with decode's memory-bound regime):
-      - [ ] Build: `./engine/build_engine.sh prefill` (uses `PREFILL_MIN/OPT/MAX_SHAPES` from
-            `engine/configs/baseline_decode.env`, seq_len 1→512(opt)→2048, past=0, `--fp16`)
-      - [ ] Benchmark: `./bench/trtexec_baseline.sh prefill` — already has `--separateProfileRun`,
-            so both `prefill_profile.json` and `prefill_timing.json` should be captured in one go
-      - [ ] Re-run the same op-wise aggregation (group by `mlp.gate_proj`/`up_proj`/`down_proj`/
-            `attn.*`/`lm_head`, sum `averageMs`, compute `% of step`) and compare against decode:
-            expect attention's `score_matmul`/`context_matmul` (Q@Kᵀ and softmax@V, which scale
-            with `sequence_length²` and were <1% combined at decode's seq_len=1) to become far
-            more significant at seq_len=512, since prefill is compute-bound, not memory-bound
-            like decode
-      - [ ] Compute implied FLOPs/s (not bandwidth) for the MLP GEMMs at prefill's larger M
-            (M=512 instead of M=1) and compare against L4's peak FP16 Tensor Core throughput,
-            the compute-bound analogue of the decode bandwidth-floor analysis
-      - [ ] Record results in `PROJECT_PROGRESS.md`: latency/throughput table, op-wise breakdown,
-            and an explicit decode-vs-prefill contrast paragraph (memory-bound skinny GEMM vs.
-            compute-bound wide GEMM — this framing is central to the project's thesis)
+      - [x] Build + benchmark (`prefill_profile.json` 136 iters, `prefill_timing.json` 133 iters,
+            batch=1/seq=512/past=0, `--fp16`)
+      - [x] Op-wise aggregation — found & fixed a classifier gotcha: at M=512 Myelin fuses
+            `gate_proj`'s GEMM into its SiLU-activation epilogue (`__myl_FcNegExpAddDivMulMul`),
+            unlike decode where it's a standalone kernel. Corrected breakdown: MLP GEMMs 55.7%
+            of step (down from decode's 69.9%); attention's combined share grew to ~21.4% (from
+            ~11.1% at decode) — confirms the `sequence_length²` scaling prediction
+      - [x] Computed achieved TFLOP/s for the 3 MLP GEMMs at M=512 vs. L4's ~121 TFLOP/s FP16
+            peak — all three land at ~42–44% of peak compute (tight band, unlike decode's
+            40–87% bandwidth spread) — empirically confirms the roofline model's prediction
+            that prefill crosses into compute-bound territory
+      - [x] Computed achieved bandwidth (GB/s, including activation+output bytes now that
+            they're non-negligible at M=512) for the same 3 MLP GEMMs — lands at ~40–42% of
+            ~300 GB/s peak, nearly matching the compute-utilization band. Confirms prefill sits
+            right at the roofline ridge point (~417 vs ~403 FLOP/byte) — only marginally
+            compute-bound, not deep in either regime, unlike decode where bandwidth (40–87%)
+            and compute (~0.1–0.2%) utilization diverge sharply
+      - [x] Recorded full results + decode-vs-prefill contrast in `PROJECT_PROGRESS.md`
 - [ ] **profile** — Profile the decode stage's dominant GEMM (`up_proj`/`gate_proj`) with Nsight
       Systems/Compute and the editable timing cache (`kEDITABLE_TIMING_CACHE`) to capture the
       exact auto-selected tactic name and achieved occupancy/memory-throughput evidence.
