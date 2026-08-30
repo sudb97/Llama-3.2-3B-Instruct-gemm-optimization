@@ -2,7 +2,7 @@
 
 > **One-line story (target):** Built and profiled a TensorRT engine for Llama-3.2-3B on an NVIDIA L4, identified the decode-time MLP GEMM as the bottleneck, and replaced TensorRT's auto-selected tactic with a custom CUTLASS FP8 kernel (IPluginV3 plugin), achieving measurable per-token latency reduction at parity accuracy, validated with Nsight Compute.
 
-**Last updated:** 2026-07-19  
+**Last updated:** 2026-08-19  
 **GPU:** NVIDIA L4 (Ada Lovelace, SM89, 24 GB)  
 **Stack:** CUDA 12.6 · TensorRT 10.4 · CUTLASS 3.x · Ubuntu 24.04 (Docker)
 
@@ -15,11 +15,13 @@
 | Environment (Docker, CUDA, TRT, CUTLASS, Nsight) | **Done** | See [Environment setup](#1-environment-setup) |
 | Project layout + baseline scripts | **Done** | ONNX → trtexec workflow scaffolded |
 | Baseline engine build + benchmark (decode + prefill) | **Done** | Clean ONNX export, FP16 engines, op-wise + roofline analysis for both regimes |
-| Profile (nsys/ncu, timing cache, tactic names) | **Next** | See [Profile phase plan](#profile-phase-plan-whats-next) below |
-| Tactic swap demo (ITimingCache::update) | Pending | |
-| Microbenchmark (single MatMul network) | Pending | |
-| Custom CUTLASS FP8 kernel | Pending | |
-| IPluginV3 plugin + engine swap | Pending | |
+| Profile (nsys/ncu, tactic names, ncu bottleneck) | **Done** | Tactic captured; occupancy/DRAM/SASS analysis complete — see [Nsight profiling](#2026-08--nsight-profiling-decode-up_proj-kernel-bottleneck-analysis) |
+| Memory-pattern microbench (DRAM amplification) | **Done** | Verified in project Docker on L4 — see [Memory-pattern microbenchmark](#2026-08-19--memory-pattern-microbenchmark-verified-in-project-docker) |
+| Tactic swap demo (ITimingCache::update) | Deferred | Low value: all four decode GEMMs already at 89–93% DRAM peak on the same XMMA family |
+| Custom GEMV kernel (FP16) | **Done** | Beats XMMA 1.039×/1.070× at the contiguous DRAM floor — see [FP16 GEMV](#2026-08-19--fp16-decode-gemv-beats-the-xmma-tactic) |
+| Microbenchmark (single MatMul network) | **Next** | Clean single-MatMul TRT net for the plugin comparison |
+| IPluginV3 plugin + engine swap | Pending | Wrap `kernels/gemv_fp16.cu` |
+| FP8 / weight-only quantization | Pending | Only remaining lever — FP16 access pattern is exhausted |
 | Validation (cosine sim + eval) | Pending | |
 | Package (plots, README, writeup) | Pending | |
 
@@ -186,24 +188,28 @@ General libraries (cuBLAS, TensorRT default tactics) are tuned for large `M`. LL
 | trtexec latency (ms) | 30.24 ms/token (mean), compute 28.10 ms | 83.995 ms/step (mean), compute 76.305 ms |
 | Dominant layer (from profile) | `mlp/up_proj` (31.6%), `mlp/gate_proj` (22.4%) | `mlp/gate_proj`(fused, 19.0%), `mlp/up_proj` (18.7%) |
 | Bottleneck resource | HBM bandwidth (memory-bound) | Tensor Core FLOPs (compute-bound, but only marginally — see below) |
-| Achieved bandwidth vs. peak | `up_proj` 119 GB/s (~40% of ~300 GB/s BW) | `up_proj` 122.5 GB/s (~41% of ~300 GB/s BW) |
-| Achieved compute vs. peak | `up_proj` ~0.1 TFLOP/s (~0.1% of ~121 TFLOP/s FP16 — not the binding constraint) | `up_proj` 51.04 TFLOP/s (~42% of ~121 TFLOP/s FP16) |
-| Auto-selected tactic name | pending (needs editable timing cache / verbose build log) | pending |
+| Achieved bandwidth vs. peak | **ncu (authoritative):** `up_proj`/`gate_proj` ~270 GB/s (~90% of L4 peak); `down_proj` similar. Earlier 119 GB/s was a `trtexec --dumpProfile` artifact (see 2026-08 ncu log). | `up_proj` 122.5 GB/s (~41% of ~300 GB/s BW) |
+| Achieved compute vs. peak | `up_proj` ~15% SM / ~0.1% of FP16 Tensor-Core peak — not binding | `up_proj` 51.04 TFLOP/s (~42% of ~121 TFLOP/s FP16) |
+| Auto-selected tactic name | `sm80_xmma_gemm_f16f16_f16f16_f16_tn_n_tilesize32x32x64_stage6_warpsize2x2x1_tensor16x8x16_execute_kernel_trt` (grid 256 for up/gate, 96 for down) | pending |
 
 ### After custom kernel / plugin
 
-| Metric | Baseline | Custom plugin | Speedup |
+| Metric | Baseline (TRT sm80_xmma) | Custom GEMV | Speedup |
 |--------|----------|---------------|---------|
-| Microbenchmark GEMM (ms) | | | |
-| Full-model decode (ms/token) | | | |
-| Cosine similarity vs baseline | | | |
+| `up_proj` kernel (ncu, cold) | 223.9 µs, 60.62 MB | 215.6 µs, 56.96 MB | **1.039×** |
+| `down_proj` kernel (ncu, cold) | 223.6 µs, 60.92 MB | 208.9 µs, 56.28 MB | **1.070×** |
+| DRAM amplification | 1.204× / 1.210× | 1.132× / 1.118× | at contiguous floor |
+| Cosine similarity vs fp64 CPU ref | — | 0.99999998 | 32/32 configs pass |
+| Full-model decode (ms/token) | 30.24 | pending plugin | |
 
 ### Nsight evidence
 
 | Tool | Finding |
 |------|---------|
-| ncu (roofline / occupancy) | |
-| nsys (timeline) | |
+| nsys (timeline) | Decode MLP MatMuls map 1:1 onto `sm80_xmma_gemm_..._tilesize32x32x64_stage6_...`. Host `myelin-exec` row is the TRT layer; CUDA row is the kernel. |
+| ncu (up_proj, grid 256) | Memory 93%, compute 15%. Occupancy **16.67%** (shared-mem limited: 2 blocks/SM). L1TEX scoreboard = 62.8% of warp stalls. L2 sector excess **0%**; kernel requests 99.92% of theoretical minimum bytes. DRAM amplification **1.20×**. |
+| ncu (down_proj, grid 96) | Same tactic family, same 89–93% DRAM saturation. Apparent 2× `trtexec` speedup vs `up_proj` is a profiler artifact — ncu times are comparable once bytes-moved is the denominator. |
+| ncu (memory-pattern bench, Docker L4) | Contiguous 1.10–1.13×, strided 1.14×, fragmented 1.41–1.45×. Real kernel sits at 1.20–1.21× — between strided and fragmented. |
 
 ---
 
@@ -221,20 +227,24 @@ General libraries (cuBLAS, TensorRT default tactics) are tuned for large `M`. LL
 - Default PyTorch / onnxruntime-gpu wheels (CUDA 13).
 - Assuming `trtexec --version` exists.
 
-## Key learnings — optimization path (ahead)
+## Key learnings — optimization path
 
-- **Editable timing cache** (`kEDITABLE_TIMING_CACHE`) — swap existing tactics without writing a kernel (good for learning).
-- **IPluginV3** — inject custom kernel as the layer implementation (headline result).
-- **Microbenchmark first** — single MatMul at real decode shapes before full-model swap.
-- **Always report parity** — FP8/custom kernels need cosine sim + small eval, not speed alone.
+- **ncu over dumpProfile** for bandwidth/time of skinny GEMMs — dumpProfile inflated `up_proj` and made `down_proj` look 2× faster.
+- **Occupancy is not the lever.** Shared-mem limits the XMMA kernel to 16.67%; DRAM is already 89–93% saturated, so more blocks do not buy unused bandwidth.
+- **Recoverable gap is DRAM amplification** (1.20× real kernel vs 1.10–1.13× contiguous floor), not coalescing inside a tile (0% L2 sector excess).
+- **FP16 GEMV first, FP8 later.** Access-pattern ceiling is ~1.07–1.09× (1.20× → 1.10–1.13× DRAM). Occupancy is not a time lever.
+- **IPluginV3** after the standalone GEMV beats the XMMA kernel.
+- **Always report parity** — cosine sim + small eval, not speed alone.
 
 ---
 
 ## Open questions / risks
 
 - [x] ONNX graph input names include `past_key_values.*` + `position_ids` — shape flags match `inspect_onnx.py` / `baseline_decode.env`.
-- [ ] ONNX graph MatMul layout may differ from TensorRT-LLM fused GEMMs — microbenchmark still required for clean comparison.
-- [ ] FP8 engine variant — build after FP16 baseline is stable.
+- [x] Weight layout: both `up_proj` and `down_proj` are `[K, N]` row-major in the clean ONNX (row strides 16384 B and 6144 B). Confirmed by protobuf inspection of `models/onnx-fp16-clean/model.onnx`.
+- [x] `trtexec --dumpProfile` implied bandwidth (119 vs 236 GB/s) is **not** trustworthy for these kernels — ncu shows both at ~90% DRAM peak. Use ncu, not dumpProfile, as the speed baseline.
+- [ ] GEMV rewrite: can we reach the 1.10–1.13× contiguous DRAM floor in a real kernel, not just the memory microbench?
+- [ ] FP8 engine variant — decide after FP16 GEMV numbers, not before.
 - [ ] Full tokens/sec needs Python TRT runner (tokenizer + KV loop), not `trtexec` alone.
 
 ---
@@ -380,39 +390,115 @@ All three land in a tight **~42–44% of peak compute** band — a sharp contras
 | MLP GEMM share | 69.9% | 55.7% |
 | Attention share | ~11.1% | ~21.4% (grows with seq_len², as predicted) |
 | Bottleneck | HBM bandwidth (memory-bound) | Tensor Core FLOPs (marginally compute-bound) |
-| `up_proj` bandwidth vs. peak | 119 GB/s (~40% of ~300 GB/s) | 122.5 GB/s (~41% of ~300 GB/s) |
+| `up_proj` bandwidth vs. peak | ~270 GB/s (~90% of peak, ncu). dumpProfile 119 GB/s was an artifact | 122.5 GB/s (~41% of ~300 GB/s) |
 | `up_proj` compute vs. peak | ~0.1 TFLOP/s (~0.1% — not binding) | 51.04 TFLOP/s (~42% of ~121 TFLOP/s) |
 | Optimization target | Bandwidth efficiency (skinny GEMV-like shapes) | Compute efficiency (different axis — out of project scope) |
 
-**Baseline phase conclusion:** both reference points are captured. Decode MLP GEMMs (`up_proj`/`gate_proj` at 3072→8192) are the priority optimization target — memory-bound, leaving 2–2.5× bandwidth headroom vs. what `down_proj` already achieves on the same GPU. Prefill confirms the roofline model and reinforces decode-only scoping for the custom CUTLASS/FP8 kernel work.
+**Baseline phase conclusion:** both reference points are captured. Decode MLP GEMMs are the priority target (memory-bound). The dumpProfile 2–2.5× `up_proj` vs `down_proj` bandwidth gap was later shown to be a profiler artifact — ncu puts all four decode GEMMs at 89–93% DRAM peak. Prefill confirms the roofline model and decode-only scoping.
 
-### Profile phase plan (what's next)
+### Profile phase — completed (see 2026-08 log below)
 
-With baseline profiling complete, the next milestone is capturing the **exact TensorRT tactic** TensorRT auto-selected for the dominant decode GEMM (`up_proj`/`gate_proj`) — the concrete number the custom kernel must beat.
+Tactic name, occupancy limiter, DRAM saturation, and DRAM-amplification floor are measured. Editable timing-cache swap is deferred (same XMMA family, already DRAM-saturated). Next work is a GEMV kernel, not another TRT tactic.
 
-**Step 1 — Decode forward pass setup (already in place)**
+### 2026-08 — Nsight profiling: decode `up_proj` kernel bottleneck analysis
 
-No new tokenizer/KV-loop harness is needed for tactic capture. `bench/trtexec_baseline.sh decode` loads `engines/baseline_decode.engine`, sets all 58 dynamic inputs via `--shapes=` from `engine/configs/baseline_decode.env` (`input_ids:1x1`, `attention_mask:1x129`, `position_ids:1x1`, `past_key_values.*:1x8x128x128`), and fills tensors with random data of the correct shape/dtype. Kernel timing depends on shapes/strides/dtypes, not semantic token values — this is sufficient for Nsight and timing-cache inspection. A real Python TRT runner (tokenizer + KV loop feeding `present.*` → `past_key_values.*`) is deferred to the `validate` phase for correctness/end-to-end checks.
+**Tooling issues resolved first**
 
-**Step 2 — Editable timing cache (`BuilderFlag::kEDITABLE_TIMING_CACHE`)**
+| Problem | Cause | Fix |
+|---|---|---|
+| `nsys` produced `.qdstrm`, "importer binary not found" | CLI-only Nsight (2022.4.2) missing importer on `PATH` | `/usr/lib/nsight-systems/host-linux-x64/QdstrmImporter -i X.qdstrm -o X.nsys-rep` |
+| nsys captured only host `enqueue`, no GPU kernels | Missing GPU-trace flags | `--gpu-metrics-device=all --gpuctxsw=true --trace-fork-before-exec=true` |
+| Windows ncu GUI `FailedReadingMessage` | CLI/GUI version mismatch | Match GUI ≥ CLI 2024.3, or export CSV/text |
 
-Normal `--timingCacheFile=` (already used in `build_engine.sh`) speeds rebuilds by reusing recorded tactic winners, but entries are opaque — you cannot read which tactic won or force a swap. **`kEDITABLE_TIMING_CACHE`** makes the cache inspectable and mutable via the TensorRT Python API (`ITimingCache`):
+**Tactic captured (nsys)**
 
-- **Inspect:** iterate cache entries to get the tactic hash/name and measured latency per layer/shape — answers "what did TensorRT pick for `up_proj` at decode?"
-- **Mutate:** call `ITimingCache::update(...)` to force a different tactic that was considered during the search, then rebuild — this is the `tactic-swap` demo before writing a custom kernel.
+`sm80_xmma_gemm_f16f16_f16f16_f16_tn_n_tilesize32x32x64_stage6_warpsize2x2x1_tensor16x8x16_execute_kernel_trt`
 
-Not exposed as a `trtexec` CLI flag — requires a short Python builder script (extend or parallel to `build_engine.sh`).
+- Tile 32×32×64, 6-stage software pipeline, 2×2 warps, HMMA 16×8×16
+- Grid 256 for `up_proj`/`gate_proj` (N=8192 / 32), grid 96 for `down_proj` (N=3072 / 32)
+- Block 128 threads, 50 registers/thread, 49.15 KB dynamic shared + 1.02 KB driver
 
-**Step 3 — Nsight profiling**
+**Occupancy is shared-memory limited, and the math matches ncu exactly**
 
-Wrap the same decode benchmark command:
+`6 stages × (32×64 + 64×32) × 2 B = 49,152 B` plus 1 KiB driver ≈ 50.17 KB/block. L4 SM shared mem 102.40 KB → `floor(102.40/50.17) = 2` blocks/SM → `2 × 4 warps = 8` warps/SM → `8/48 = 16.67%`. Registers are not binding (would allow 9 blocks). ncu reports theoretical occupancy 16.6667% and theoretical warps/scheduler = 2.
 
-- `nsys profile -o bench/results/decode_trace trtexec --loadEngine=... --shapes=...` — timeline, kernel names, stream overlap
-- `ncu --set full -k <up_proj_kernel_regex> trtexec ...` — occupancy, memory throughput, Tensor Core utilization on the dominant GEMM kernel
+**What actually costs time**
 
-**Step 4 — Record baseline-to-beat**
+- DRAM ~90–93% of peak; compute ~15% of SM. Deeply memory-bound.
+- L1TEX scoreboard = 62.8% of warp stalls. Pipeline cannot hide HBM latency at 2 warps/scheduler.
+- L2 sector excess **0%**. Measured sectors / theoretical minimum = **0.9992**. Zero shared-memory bank conflicts. FP16 access-pattern / coalescing inside this tile is exhausted.
+- The earlier Results-table 119 GB/s (`weight_bytes / dumpProfile time`) is wrong. ncu DRAM throughput is ~270 GB/s. Use ncu as the baseline-to-beat, not dumpProfile.
 
-Fill in the `Auto-selected tactic name` row in the Results table and the Nsight evidence table. This number anchors the microbenchmark (`micronet`) and custom-kernel (`kernel`/`plugin`) work.
+**SASS mainloop (63 instructions × 48 K-tiles):** 8× `HMMA.16816.F16`, 8× `LDSM.16.M88.4`, 4× `LDGSTS` (`cp.async`), `LDGDEPBAR` + `DEPBAR.LE SB0, 0x4` (`wait_group 4`) + `BAR.SYNC`. Two 6-stage circular buffers at `0x0000` (A, activations) and `0x6000` (B, weights), 4 KiB per stage each — not 8 KiB combined in one slot.
+
+**Implication:** raising occupancy by shrinking the A-tile is real (GEMV can hit 100% occupancy) but does **not** create unused DRAM bandwidth — the bus is already full. The only recoverable bytes are DRAM *amplification* (overfetch past unique weight bytes), not occupancy.
+
+### 2026-08 — `down_proj` ncu: the 2× `trtexec` gap is an artifact
+
+`down_proj` moves the same 50.33 MB of weights as `up_proj`. dumpProfile implied 236 vs 119 GB/s. ncu raw export (`bench/profile/down_projection_raw.csv`) captured four GEMM shapes in one session:
+
+| Kernel | Grid | Predicted bytes | Match | DRAM % peak | Amplification vs  unique weights |
+|---|---|---|---|---|---|
+| `qkv_proj` | 160 | 32.44 MB | exact | ~92% | similar class |
+| `o_proj` | 96 | 19.46 MB | exact | ~89% | similar class |
+| `up_proj`/`gate_proj` | 256 | 51.90 MB | exact | ~90% | **1.204×** |
+| `down_proj` | 96 | 51.90 MB | exact | ~91% | **1.210×** |
+
+All four sit at 89–93% DRAM peak. The dumpProfile 2× gap is not a structural `down_proj` win. Same XMMA tactic family, same occupancy limiter.
+
+### 2026-08-19 — Memory-pattern microbenchmark, verified in project Docker
+
+Ran `kernels/mem_pattern_bench.cu` **inside container `489257d94e91`** (`cuda-profiler:latest`, NVIDIA L4 sm_89, CUDA 12.6, TensorRT 10.4.0.26). Rebuilt with `nvcc -O3 -arch=sm_89 -lineinfo`. Cold `ncu` (`--launch-skip 0 --launch-count 1`). Full table: [`kernels/mem_pattern_results_l4_container.md`](kernels/mem_pattern_results_l4_container.md).
+
+DRAM amplification = `dram__bytes_read.sum / 50.33 MB`.
+
+| Pattern | down_proj shape (8192 × 6144 B) | up_proj shape (3072 × 16384 B) |
+|---|---|---|
+| contiguous | **1.104×** | **1.133×** |
+| strided (coalesced warp, row-stride jumps) | 1.137× | 1.139× |
+| fragmented (64 B groups on different K-rows) | 1.409× | 1.450× |
+| **real TRT kernel** | **1.210×** | **1.204×** |
+
+Weights confirmed `[K, N]` row-major via ONNX protobuf (`up_proj` row = 16384 B, `down_proj` row = 6144 B). The real kernel sits between strided and fragmented — consistent with a 64-wide N-tile that is coalesced within a K-row but jumps `ROW_BYTES` between K-rows.
+
+**Honest FP16 ceiling:** moving from 1.20× toward the contiguous floor (1.10–1.13×) cuts DRAM bytes by **~7–9%**. Because the XMMA kernel is already DRAM-saturated, that is also the plausible **time** speedup from access pattern alone (~1.07–1.09×), not 2×. Extra time may come from dropping XMMA epilogue/pipeline overhead, but occupancy-only rewrites will not.
+
+### 2026-08-19 — FP16 decode GEMV beats the XMMA tactic
+
+Implemented `kernels/gemv_fp16.cu` and profiled it in container `489257d94e91`. Full write-up: [`kernels/gemv_results_l4_container.md`](kernels/gemv_results_l4_container.md).
+
+| Shape | Kernel | Duration | DRAM read | Amplification | DRAM % peak | Occupancy |
+|---|---|---|---|---|---|---|
+| `up_proj` | TRT sm80_xmma | 223.9 µs | 60.62 MB | 1.204× | ~90% | 16.1% |
+| `up_proj` | **GEMV** (1024 thr, grid 14) | **215.6 µs** | **56.96 MB** | **1.132×** | 90.1% | 64.7% |
+| `down_proj` | TRT sm80_xmma | 223.6 µs | 60.92 MB | 1.210× | ~91% | 13.4% |
+| `down_proj` | **GEMV** (384 thr, grid 29) | **208.9 µs** | **56.28 MB** | **1.118×** | 91.9% | 24.6% |
+
+**1.039× / 1.070×** at equal DRAM saturation. Cosine similarity **0.99999998** vs a float64 CPU reference across all 32 variant × grid combinations.
+
+**Design:** split-K with full-row blocks. A block owns a contiguous chunk of K rows and the *full* N width, so it reads one unbroken slab; splitting N would reintroduce the row-stride jump. `THREADS × 8 × VEC_PER_THREAD == N` makes one instruction sweep cover exactly one row. Each thread owns fixed output columns for the whole sweep, so partials stay in registers — at M=1 every weight is used once, so no shared-memory B staging. Blocks `atomicAdd` into an fp32 accumulator (≤32 KB, stays L2-resident).
+
+**Result matches the pre-kernel prediction.** Amplification landed at 1.132×/1.118× against the microbench contiguous floor of 1.133×/1.104×. Bytes fell 6.0–7.6%, time fell 3.7–6.6% — squarely in the 1.07–1.09× byte-level estimate. **FP16 access-pattern optimization is now exhausted.**
+
+**Two non-obvious findings**
+
+- **Small grids win.** 14 blocks beat 58, 116 and 464 on `up_proj`. Past DRAM saturation, every extra block is one more concurrent stream to interleave. 14 blocks of 1024 threads use a fraction of the SMs and still hit 90% of peak.
+- **Occupancy was never the lever.** `chunk/narrow` at 16% occupancy and `chunk/wide` at 65% land within 2 µs at the same grid. The win came entirely from the byte reduction — confirming that the 2-blocks/SM limit was real but not what cost time.
+
+**Rejected design (kept in source as evidence):** the first version used contiguous K-chunks with a machine-filling grid (116). Amplification was fine (1.115×) but DRAM throughput collapsed to 62–74% and it was *slower than baseline* (258–308 µs) because co-resident blocks streamed from separated regions. A `stride` variant (block `b` takes rows `b, b+grid, …`) fixed the window, but shrinking the grid mattered more.
+
+**Benchmark caveat:** L4's L2 is 48 MB against a 50.33 MB matrix, so a naive repeat loop reports 800–1000 GB/s — above DRAM peak. `bench` rotates over 4 weight copies to stay cold, matching ncu.
+
+---
+
+## Next steps (after 2026-08-19)
+
+FP16 kernel work is done and the remaining lever is bytes, not scheduling.
+
+1. **Standalone TRT micronet** — single MatMul at the decode shapes, so the plugin comparison is not buried in a 28-layer engine.
+2. **IPluginV3 wrap** of `kernels/gemv_fp16.cu`, then swap `up_proj` (highest decode share) in the full engine. Expect ~1.04× on that layer; end-to-end decode gain will be well under that since MLP GEMMs are 69.9% of the step.
+3. **FP8 / weight-only quantization** — the only remaining lever. Halving weight bytes is worth ~2× on a DRAM-bound kernel, an order more than the 1.04–1.07× access-pattern win. Reuse the same split-K structure and add a dequant in the inner loop; validate parity with cosine sim + a small eval.
+4. **Skip `ITimingCache::update`** as a primary path. Optional later as a short negative result showing other TRT FP16 tactics do not beat this XMMA kernel.
 
 ---
 

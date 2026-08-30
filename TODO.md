@@ -39,17 +39,32 @@ Update the checkboxes as you go — this file is the source of truth across sess
             compute-bound, not deep in either regime, unlike decode where bandwidth (40–87%)
             and compute (~0.1–0.2%) utilization diverge sharply
       - [x] Recorded full results + decode-vs-prefill contrast in `PROJECT_PROGRESS.md`
-- [ ] **profile** — Profile the decode stage's dominant GEMM (`up_proj`/`gate_proj`) with Nsight
-      Systems/Compute and the editable timing cache (`kEDITABLE_TIMING_CACHE`) to capture the
-      exact auto-selected tactic name and achieved occupancy/memory-throughput evidence.
-- [ ] **tactic-swap** — Demonstrate the "replace a tactic" concept cheaply: use
-      `ITimingCache::update` to force a different existing tactic for that layer,
-      rebuild, and record the latency effect.
-- [ ] **micronet** — Build a standalone single-MatMul TensorRT network using the real
-      decode shapes (M=1..8, K=3072, N=8192 and K=8192, N=3072) as the clean
-      microbenchmark baseline.
-- [ ] **kernel** — Write a custom CUTLASS/CUDA FP8 (or weight-only) GEMM kernel
-      specialized for the skinny decode shapes on SM89; tune tile/stage/cluster config.
+- [x] **profile** — Profile decode GEMMs with nsys/ncu. Tactic:
+      `sm80_xmma_gemm_..._tilesize32x32x64_stage6_...`. Occupancy 16.67% (shared-mem,
+      2 blocks/SM). DRAM 89–93% of peak. L2 sector excess 0%. DRAM amplification
+      1.20–1.21×. dumpProfile 119 vs 236 GB/s was an artifact. Timing-cache inspect
+      not needed for tactic name (nsys already had it).
+- [x] **mem-pattern** — Isolated DRAM access patterns in project Docker `489257d94e91`
+      on L4. Contiguous 1.10–1.13×, strided 1.14×, fragmented 1.41–1.45×. Real kernel
+      sits at 1.20–1.21×. Results: `kernels/mem_pattern_results_l4_container.md`.
+- [ ] **tactic-swap** — Deferred. Other TRT FP16 tactics are the same XMMA family
+      already at DRAM peak. Optional later as a short negative-result demo.
+- [x] **kernel (FP16 GEMV)** — `kernels/gemv_fp16.cu`. Split-K, full-row blocks,
+      register accumulators, no B-tile staging. Beats the XMMA tactic
+      **1.039×** (`up_proj` 223.9→215.6 µs) and **1.070×** (`down_proj`
+      223.6→208.9 µs) at equal ~90% DRAM saturation. Amplification 1.132×/1.118×
+      — at the contiguous microbench floor, so FP16 access-pattern work is
+      exhausted. Cosine 0.99999998 vs fp64 CPU ref, 32/32 configs.
+      Results: `kernels/gemv_results_l4_container.md`.
+      - Small grids win (14 blocks > 58 > 464): past DRAM saturation every extra
+        block is another concurrent stream to interleave.
+      - Occupancy was not the lever — 16% vs 65% occupancy differ by <2 µs at the
+        same grid; the win came entirely from the byte reduction.
+- [ ] **micronet** — Standalone single-MatMul TensorRT network at real decode shapes
+      (M=1..8, K=3072, N=8192 and K=8192, N=3072) for a clean plugin comparison.
+- [ ] **kernel-fp8** — FP8 / weight-only quantization on the same split-K structure.
+      Now the only remaining lever: halving weight bytes is worth ~2× on a
+      DRAM-bound kernel vs the 1.04–1.07× access-pattern win.
 - [ ] **plugin** — Wrap the kernel as an `IPluginV3` TensorRT plugin (C++ + CMake),
       build the shared library, and register it.
 - [ ] **swap-build** — Swap the target layer for the plugin, rebuild the microbenchmark

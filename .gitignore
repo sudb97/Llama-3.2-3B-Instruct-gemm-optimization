@@ -18,9 +18,20 @@ bench/**/*.csv
 plugin/build/
 plugin/**/*.so
 
-# Kernel build artifacts
+# Kernel build artifacts and compiled binaries
 kernels/build/
 kernels/**/*.o
+kernels/gemv_fp16
+kernels/mem_pattern_bench
+kernels/mem_pattern_bench_*
+
+# Nsight raw captures (hundreds of MB)
+bench/profile/*.qdstrm
+bench/profile/*.nsys-rep
+bench/profile/*.ncu-rep
+
+# Lock files
+engine/*.lock
 
 # Python
 __pycache__/

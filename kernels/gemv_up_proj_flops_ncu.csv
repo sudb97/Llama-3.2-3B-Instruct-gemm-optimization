@@ -1,0 +1,12 @@
+==PROF== Connected to process 436 (/workspace/Llama-3.2-3B-Instruct-gemm-optimization/kernels/gemv_fp16)
+[once up_proj] chunk/wide thr=1024 grid=14 weights=50.33 MB
+==PROF== Disconnected from process 436
+"ID","Process ID","Process Name","Host Name","Kernel Name","Context","Stream","Block Size","Grid Size","Device","CC","Section Name","Metric Name","Metric Unit","Metric Value"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","dram__bytes_read.sum","byte","58791680"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","gpu__time_duration.sum","ns","221440"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","sm__sass_thread_inst_executed_op_fadd_pred_on.sum","inst","0"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","sm__sass_thread_inst_executed_op_ffma_pred_on.sum","inst","25165824"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","sm__sass_thread_inst_executed_op_fmul_pred_on.sum","inst","0"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","sm__sass_thread_inst_executed_op_hadd_pred_on.sum","inst","28311552"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","sm__sass_thread_inst_executed_op_hfma_pred_on.sum","inst","0"
+"0","436","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<1024, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(1024, 1, 1)","(14, 1, 1)","0","7.5","Command line profiler metrics","sm__sass_thread_inst_executed_op_hmul_pred_on.sum","inst","0"

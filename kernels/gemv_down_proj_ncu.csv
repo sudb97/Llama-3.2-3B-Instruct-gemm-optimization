@@ -1,0 +1,11 @@
+==PROF== Connected to process 1267 (/workspace/Llama-3.2-3B-Instruct-gemm-optimization/kernels/gemv_fp16)
+[once down_proj] chunk/wide thr=384 grid=29 weights=50.33 MB
+==PROF== Disconnected from process 1267
+"ID","Process ID","Process Name","Host Name","Kernel Name","Context","Stream","Block Size","Grid Size","Device","CC","Section Name","Metric Name","Metric Unit","Metric Value"
+"0","1267","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<384, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(384, 1, 1)","(29, 1, 1)","0","8.9","Command line profiler metrics","dram__bytes_read.sum","byte","56281088"
+"0","1267","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<384, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(384, 1, 1)","(29, 1, 1)","0","8.9","Command line profiler metrics","dram__throughput.avg.pct_of_peak_sustained_elapsed","%","91.88"
+"0","1267","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<384, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(384, 1, 1)","(29, 1, 1)","0","8.9","Command line profiler metrics","gpu__time_duration.sum","ns","208896"
+"0","1267","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<384, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(384, 1, 1)","(29, 1, 1)","0","8.9","Command line profiler metrics","launch__occupancy_limit_registers","block","4"
+"0","1267","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<384, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(384, 1, 1)","(29, 1, 1)","0","8.9","Command line profiler metrics","launch__registers_per_thread","register/thread","40"
+"0","1267","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<384, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(384, 1, 1)","(29, 1, 1)","0","8.9","Command line profiler metrics","lts__t_sectors_srcunit_tex_op_read.sum","sector","1573403"
+"0","1267","gemv_fp16","127.0.0.1","void gemv_chunk_kernel<384, 1>(const uint4 *, const __half *, float *, int, int, int)","1","7","(384, 1, 1)","(29, 1, 1)","0","8.9","Command line profiler metrics","sm__warps_active.avg.pct_of_peak_sustained_active","%","24.55"
