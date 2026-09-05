@@ -62,9 +62,11 @@ Update the checkboxes as you go — this file is the source of truth across sess
         same grid; the win came entirely from the byte reduction.
 - [ ] **micronet** — Standalone single-MatMul TensorRT network at real decode shapes
       (M=1..8, K=3072, N=8192 and K=8192, N=3072) for a clean plugin comparison.
+- [ ] **opt-loop** — Iterate remaining GEMV headroom until ≥25% vs
+      TRT XMMA: DRAM ~100%, amp ~1.00×, then FP8. Harness:
+      `kernels/opt_loop/WORKFLOW.md` + `CONTAINER=<id> measure.sh`.
 - [ ] **kernel-fp8** — FP8 / weight-only quantization on the same split-K structure.
-      Now the only remaining lever: halving weight bytes is worth ~2× on a
-      DRAM-bound kernel vs the 1.04–1.07× access-pattern win.
+      Primary path past ~25% if FP16 A+B miss the unique-byte / 300 GB/s floor.
 - [ ] **plugin** — Wrap the kernel as an `IPluginV3` TensorRT plugin (C++ + CMake),
       build the shared library, and register it.
 - [ ] **swap-build** — Swap the target layer for the plugin, rebuild the microbenchmark

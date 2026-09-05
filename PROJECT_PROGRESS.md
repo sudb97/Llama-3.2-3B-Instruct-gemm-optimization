@@ -491,11 +491,18 @@ Implemented `kernels/gemv_fp16.cu` and profiled it in container `489257d94e91`. 
 
 ---
 
+### 2026-09-05 — L4 optimization loop (authored on T4, run on L4)
+
+Harness in `kernels/opt_loop/`. Bind a running profiler container with
+`CONTAINER=<id> ./kernels/opt_loop/start.sh` (no L4 abort; record GPU).
+Target: ≥25% vs TRT XMMA on both MLP shapes. Levers: DRAM % → 100%, amp → 1.00×,
+then FP8. See `WORKFLOW.md` and `COMMANDS.md`.
+
 ## Next steps (after 2026-08-19)
 
 FP16 kernel work is done and the remaining lever is bytes, not scheduling.
 
-1. **Standalone TRT micronet** — single MatMul at the decode shapes, so the plugin comparison is not buried in a 28-layer engine.
+1. **L4 opt loop** (`kernels/opt_loop/WORKFLOW.md`) — DRAM ~100%, amp ~1.00×, then FP8, until ≥25% vs TRT XMMA. Measure only on L4.
 2. **IPluginV3 wrap** of `kernels/gemv_fp16.cu`, then swap `up_proj` (highest decode share) in the full engine. Expect ~1.04× on that layer; end-to-end decode gain will be well under that since MLP GEMMs are 69.9% of the step.
 3. **FP8 / weight-only quantization** — the only remaining lever. Halving weight bytes is worth ~2× on a DRAM-bound kernel, an order more than the 1.04–1.07× access-pattern win. Reuse the same split-K structure and add a dequant in the inner loop; validate parity with cosine sim + a small eval.
 4. **Skip `ITimingCache::update`** as a primary path. Optional later as a short negative result showing other TRT FP16 tactics do not beat this XMMA kernel.

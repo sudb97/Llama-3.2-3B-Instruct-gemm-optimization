@@ -1,0 +1,1 @@
+GEMV opt tick: follow kernels/opt_loop/COORDINATOR.md. Use CONTAINER from container.env. Vet the latest ncu yourself (do not rubber-stamp parse_ncu.py). Dispatch parallel Task agents for open levers. Stop at ≥25% vs TRT on both shapes or write FINAL_REPORT.md.

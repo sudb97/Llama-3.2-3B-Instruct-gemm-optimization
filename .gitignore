@@ -33,6 +33,14 @@ bench/profile/*.ncu-rep
 # Lock files
 engine/*.lock
 
+# Host-specific loop binding
+kernels/opt_loop/container.env
+kernels/opt_loop/loop.pid
+kernels/opt_loop/loop_state.json
+
+# Per-iteration ncu dumps (log is EXPERIMENT_LOG.md)
+kernels/opt_loop/runs/
+
 # Python
 __pycache__/
 *.pyc
