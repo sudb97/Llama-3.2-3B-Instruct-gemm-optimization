@@ -4,8 +4,8 @@ This is what **this** chat does on every `/loop` wake. Scripts only parse number
 **You** (the model) vet the ncu report and decide. Then you launch **parallel
 Cursor Task agents**.
 
-`CONTAINER` is required: docker id or name of a running profiler environment.
-Load `kernels/opt_loop/container.env` if the env var is unset. **Do not abort
+`CONTAINER` is required: `local` if already inside the profiler env, or a
+docker id/name from the host. Load `container.env` if unset. **Do not abort
 if the GPU is not L4** — record the GPU name and proceed.
 
 ## Tick prompt (literal)

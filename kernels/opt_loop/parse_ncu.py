@@ -8,8 +8,25 @@ import sys
 from pathlib import Path
 
 UNIQUE_FP16 = 50331648.0
-TRT_US = {"up_proj": 223.9, "down_proj": 223.6}
-GEMV_US = {"up_proj": 215.6, "down_proj": 208.9}
+# CORRECTED 2026-09-07. The old 223.9 / 223.6 pair was captured under GPU
+# contention and is overstated by ~20%. Re-measured twice on a verified-idle
+# L4 (agent 187.27 / 181.60, parent 186.88 / 182.17), amplification 1.0006 /
+# 1.0007 -- not the 1.204 / 1.210 on record. See TRT_RECHECK.md.
+TRT_US = {"up_proj": 187.1, "down_proj": 181.9}
+TRT_US_SUPERSEDED = {"up_proj": 223.9, "down_proj": 223.6}
+# Corrected 2026-09-07: mean of 3 re-measures of the unmodified kernel.
+# The old 215.6/208.9 pair came from captures showing amp ~1.13x that no
+# later run reproduces (see EXPERIMENT_LOG.md).
+GEMV_US = {"up_proj": 192.4, "down_proj": 187.9}
+
+# Two agreed bars (user decision 2026-09-07):
+#   PASS    - gain = trt/us - 1 >= 25%  ->  us <= trt / 1.25
+#   STRETCH - 25% less time             ->  us <= trt * 0.75
+# Against the CORRECTED reference both bars fall BELOW the 167.8 us FP16
+# roofline floor (PASS 149.7 / 145.5), so neither is reachable in FP16 at all.
+# Only FP8 can meet them. The two definitions are no longer meaningfully apart.
+PASS_US = {k: v / 1.25 for k, v in TRT_US.items()}
+STRETCH_US = {k: v * 0.75 for k, v in TRT_US.items()}
 
 METRIC_ALIASES = {
     "dram__bytes_read.sum": "dram_bytes",
@@ -66,6 +83,10 @@ def summarize(raw: dict, shape: str, unique_bytes: float) -> dict:
         "gain_vs_trt_pct": round(gain_trt, 2) if gain_trt is not None else None,
         "gain_vs_gemv_fp16_pct": round(gain_gemv, 2) if gain_gemv is not None else None,
         "hit_25pct_vs_trt": bool(gain_trt is not None and gain_trt >= 25.0),
+        "pass_bar_us": round(PASS_US[shape], 2),
+        "stretch_bar_us": round(STRETCH_US[shape], 2),
+        "hit_pass_bar": bool(us is not None and us <= PASS_US[shape]),
+        "hit_stretch_bar": bool(us is not None and us <= STRETCH_US[shape]),
     }
 
 

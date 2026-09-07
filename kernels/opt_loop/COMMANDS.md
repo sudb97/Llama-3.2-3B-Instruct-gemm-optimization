@@ -1,26 +1,28 @@
 # GEMV opt loop — start / track / stop
 
-`CONTAINER` is the docker **id or name** of a running container that already
-has the profiler environment (`nvcc`, `ncu`, workspace mount). Any GPU is
-allowed. There is no L4 abort.
-
-Replace `<id>` with `docker ps` output (name or 12-char id).
+`CONTAINER` is either `local` (already inside the profiler env) or a docker
+**id or name** on the host. Any GPU is allowed. There is no L4 abort.
 
 ## 1. Start
 
+From **inside** the profiler container (no docker CLI — this is the usual case):
+
 ```bash
 cd /workspace/Llama-3.2-3B-Instruct-gemm-optimization
+CONTAINER=local ./kernels/opt_loop/start.sh
+# same: CONTAINER=$(hostname) ./kernels/opt_loop/start.sh
+```
 
-# bind the already-running container (writes container.env + loop_state.json)
+From the **host** (docker exec into a running container):
+
+```bash
 CONTAINER=<id> ./kernels/opt_loop/start.sh
-# same:
-# ./kernels/opt_loop/start.sh <id>
 ```
 
 Then in this Cursor chat:
 
 ```
-CONTAINER=<id> Follow kernels/opt_loop/TICK.md
+CONTAINER=local Follow kernels/opt_loop/TICK.md
 ```
 
 That runs one coordinator tick immediately (vet ncu → `VERDICT.md` → parallel
@@ -29,9 +31,7 @@ Task agents) and arms `/loop` until stop.
 Measure a candidate yourself:
 
 ```bash
-CONTAINER=<id> TAG=iter01_dram ./kernels/opt_loop/measure.sh
-# or
-./kernels/opt_loop/measure.sh --container <id>
+CONTAINER=local TAG=iter01_dram ./kernels/opt_loop/measure.sh
 ```
 
 ## 2. Track

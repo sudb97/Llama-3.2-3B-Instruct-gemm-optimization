@@ -2,19 +2,59 @@
   "gpu": "NVIDIA L4",
   "sm": "8.9",
   "unique_weight_bytes_fp16": 50331648,
+  "unique_weight_bytes_fp8": 25165824,
   "l4_dram_peak_gbs": 300,
+  "roofline_floor_us_fp16": 167.8,
+  "roofline_floor_us_fp8": 83.9,
+
+  "_measurement_discipline": "Every number below was captured on a verified-idle GPU (nvidia-smi --query-compute-apps empty) with ECC Disabled and clocks pinned 2040/6251 MHz. dram__bytes_read.sum is DEVICE-WIDE, so a concurrent unprofiled process silently inflates it. Always cross-check against lts__t_sectors_aperture_device_lookup_miss.sum x 32, which is PER-KERNEL. A healthy capture has ratio 1.0000.",
+
   "trt_xmma": {
-    "up_proj": { "duration_us": 223.9, "dram_read_mb": 60.62, "amplification": 1.204, "dram_pct": 90.0 },
-    "down_proj": { "duration_us": 223.6, "dram_read_mb": 60.92, "amplification": 1.210, "dram_pct": 91.0 }
+    "_note": "CORRECTED 2026-09-07. Full engine, ncu on sm80_xmma_gemm_..._tilesize32x32x64_stage6_... inside engines/baseline_decode.engine. Measured twice independently: agent 187.27/181.60, parent 186.88/182.17. Values below are the means.",
+    "up_proj": { "duration_us": 187.1, "dram_read_mb": 50.364, "amplification": 1.0006, "dram_pct": 90.0 },
+    "down_proj": { "duration_us": 181.9, "dram_read_mb": 50.366, "amplification": 1.0007, "dram_pct": 92.4 }
   },
+
   "gemv_fp16_chunk_wide": {
-    "up_proj": { "duration_us": 215.6, "dram_read_mb": 56.96, "amplification": 1.132, "dram_pct": 90.1 },
-    "down_proj": { "duration_us": 208.9, "dram_read_mb": 56.28, "amplification": 1.118, "dram_pct": 91.9 }
+    "_note": "CORRECTED 2026-09-07. Mean of 3 parent re-measures of the unmodified HEAD kernel.",
+    "up_proj": { "duration_us": 192.4, "dram_read_mb": 50.378, "amplification": 1.0009, "dram_pct": 88.98, "gain_vs_trt_pct": -2.7 },
+    "down_proj": { "duration_us": 187.9, "dram_read_mb": 50.368, "amplification": 1.0007, "dram_pct": 91.1, "gain_vs_trt_pct": -3.2 }
   },
+
+  "gemv_fp16_best_no_atomics": {
+    "_note": "amp worktree, atomicAdd epilogue removed. Parent-verified.",
+    "up_proj": { "duration_us": 181.95, "amplification": 1.0003, "dram_pct": 94.04, "gain_vs_trt_pct": 2.8 },
+    "down_proj": { "duration_us": 181.70, "amplification": 1.0004, "dram_pct": 94.20, "gain_vs_trt_pct": 0.1 }
+  },
+
+  "gemv_fp8_e4m3": {
+    "_note": "Parent-verified on a verified-idle GPU. Amplification is vs FP8 unique bytes; vs FP16 unique it is 0.501x. ACCURACY NOT YET VALIDATED ON REAL WEIGHTS - see open_risks.",
+    "up_proj": { "duration_us": 110.40, "dram_read_mb": 25.215, "amplification_vs_fp8": 1.0019, "amplification_vs_fp16": 0.5010, "dram_pct": 76.30, "gain_vs_trt_pct": 69.5 },
+    "down_proj": { "duration_us": 111.42, "dram_read_mb": 25.205, "amplification_vs_fp8": 1.0015, "amplification_vs_fp16": 0.5008, "dram_pct": 75.54, "gain_vs_trt_pct": 63.3 }
+  },
+
+  "superseded_measurements": {
+    "_note": "All taken under GPU contention from a concurrent unprofiled process. Retained for provenance only. DO NOT CITE.",
+    "_root_cause": "Contention, NOT inline ECC. The ECC hypothesis is refuted by a cross-era test: a fixed hardware ECC overhead must be a fixed percentage, but the excess is ~21% in the Jul-2026 TRT captures and ~12-13% in the Sep-2026 GEMV capture. Both are consistent with a concurrent process holding a roughly constant slice of DRAM read bandwidth (~47 GB/s and ~30 GB/s respectively). ECC reads Disabled/Disabled with no pending change.",
+    "trt_xmma_jul2026": {
+      "up_proj": { "duration_us": 223.9, "dram_read_mb": 60.62, "amplification": 1.204, "excess_mb": 10.29, "implied_foreign_bw_gbs": 45.9 },
+      "down_proj": { "duration_us": 223.6, "dram_read_mb": 60.92, "amplification": 1.210, "excess_mb": 10.58, "implied_foreign_bw_gbs": 47.3 },
+      "qkv_proj": { "duration_us": 138.74, "amplification": 1.213 },
+      "o_proj": { "duration_us": 86.43, "amplification": 1.217 }
+    },
+    "gemv_fp16_aug2026": { "up_proj_us": 215.6, "up_amp": 1.132, "down_proj_us": 208.9, "down_amp": 1.118 },
+    "gemv_fp16_tick1": { "up_proj_us": 214.336, "up_amp": 1.1314, "down_proj_us": 208.0, "down_amp": 1.1182 }
+  },
+
   "target": {
-    "min_latency_gain_vs_trt_pct": 25.0,
-    "dram_pct": 100.0,
-    "amplification": 1.0,
-    "notes": "25% vs TRT needs ~168 us (up_proj). Unique-byte DRAM floor at 300 GB/s is 168 us for 50.33 MB. FP16 can only get there if amp~1.00 AND DRAM~100%. FP8 (~25 MB) has a ~84 us floor (~2.7x)."
+    "_note": "Bars recomputed against the CORRECTED reference. Both now fall BELOW the 167.8 us FP16 roofline floor, so neither is reachable in FP16 by any means. The definition-A / definition-B distinction is moot.",
+    "pass_bar_us": { "up_proj": 149.68, "down_proj": 145.52 },
+    "stretch_bar_us": { "up_proj": 140.33, "down_proj": 136.43 },
+    "status": "MET by FP8 only (110.40 / 111.42 us). FP16 baseline is slower than TRT; FP16 best is at parity."
+  },
+
+  "open_risks": {
+    "fp8_accuracy_on_real_weights": "OPEN. cos_fp16 = 0.99972 was measured on synthetic Uniform(-0.25, 0.25) weights, the best case for per-tensor E4M3 with no scale factor. Real weights are heavy-tailed. Under validation.",
+    "fp16_track_conclusion": "The FP16 optimization thesis (recover TRT's 1.20x amplification) is VOID. TRT amplification is 1.0006x; there were never excess bytes to recover. This is why FP16 work landed at parity."
   }
 }

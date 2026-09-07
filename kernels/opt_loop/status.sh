@@ -23,16 +23,21 @@ else
   echo "state:     not started (no loop_state.json)"
 fi
 
-if [[ -n "${CONTAINER:-}" ]] && command -v docker >/dev/null && docker inspect "$CONTAINER" >/dev/null 2>&1; then
+if [[ "${OPT_LOOP_EXEC:-}" == local ]]; then
+  echo "exec:      local (this environment)"
+  if command -v nvidia-smi >/dev/null; then
+    echo "live GPU:  $(nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader | head -1 | tr -d '\r')"
+  fi
+elif [[ -n "${CONTAINER:-}" ]] && command -v docker >/dev/null && docker inspect "$CONTAINER" >/dev/null 2>&1; then
   running="$(docker inspect -f '{{.State.Running}}' "$CONTAINER")"
-  echo "docker:    $CONTAINER  running=$running"
+  echo "exec:      docker  $CONTAINER  running=$running"
   if [[ "$running" == "true" ]]; then
     echo "live GPU:  $(opt_loop_gpu_in_container)"
   fi
 elif [[ -n "${CONTAINER:-}" ]]; then
-  echo "docker:    CONTAINER=$CONTAINER (not inspectable)"
+  echo "exec:      CONTAINER=$CONTAINER (not inspectable)"
 else
-  echo "docker:    CONTAINER unset"
+  echo "exec:      CONTAINER unset"
 fi
 
 if [[ -f "$SCRIPT_DIR/loop.pid" ]]; then

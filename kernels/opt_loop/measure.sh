@@ -19,7 +19,8 @@ SRC="${SRC:-gemv_fp16.cu}"
 BIN="${BIN:-${SRC%.cu}}"
 TAG="${TAG:-$(date +%Y%m%d_%H%M%S)}"
 SHAPE_ARG="both"
-NCU_LOCK="${NCU_LOCK:-$SCRIPT_DIR/.ncu.lock}"
+# Shared across git worktrees: only one ncu may touch the GPU at a time.
+NCU_LOCK="${NCU_LOCK:-/tmp/gemv_opt_loop.ncu.lock}"
 
 opt_loop_load_container "$SCRIPT_DIR"
 
@@ -50,7 +51,7 @@ opt_loop_resolve_container
 GPU_LINE="$(opt_loop_gpu_in_container)"
 GPU_NAME="$(echo "$GPU_LINE" | awk -F', ' '{print $1}')"
 ARCH="$(opt_loop_nvcc_arch)"
-echo "GPU=$GPU_LINE  nvcc_arch=$ARCH  container=${CONTAINER_ID:0:12}"
+echo "GPU=$GPU_LINE  nvcc_arch=$ARCH  exec=$OPT_LOOP_EXEC  container=${CONTAINER_ID:0:12}"
 
 METRICS="dram__bytes_read.sum,lts__t_sectors_srcunit_tex_op_read.sum,gpu__time_duration.sum,dram__throughput.avg.pct_of_peak_sustained_elapsed,sm__warps_active.avg.pct_of_peak_sustained_active,sm__sass_thread_inst_executed_op_ffma_pred_on.sum"
 
@@ -66,8 +67,7 @@ if [[ -z "$UNIQUE_BYTES" && "$SRC" == *fp8* ]]; then
   UNIQUE_BYTES=25165824
 fi
 
-docker exec -w "$KERNELS_C" "$CONTAINER" \
-  bash -c "nvcc -O3 -arch=$ARCH -lineinfo '$SRC' -o '$BIN'"
+opt_loop_run "$KERNELS_C" nvcc -O3 -arch="$ARCH" -lineinfo "$SRC" -o "$BIN"
 
 run_shape() {
   local shape="$1"
@@ -76,7 +76,7 @@ run_shape() {
   echo "=== ncu $shape (cold, launch-count 1) ==="
   # Do not use --kernel-name gemv — some ncu versions treat it as a regex
   # that matches nothing. once() launches the GEMV as the first kernel.
-  docker exec -w "$KERNELS_C" "$CONTAINER" \
+  opt_loop_run "$KERNELS_C" \
     ncu --csv --launch-skip 0 --launch-count 1 --metrics "$METRICS" \
         "./$BIN" once "$shape" \
     | tee "$csv"
@@ -107,13 +107,19 @@ summary = {
     "down_proj": dn,
     "min_gain_vs_trt_pct": min(gains),
     "hit_25pct_both": bool(up["hit_25pct_vs_trt"] and dn["hit_25pct_vs_trt"]),
+    "hit_pass_bar_both": bool(up["hit_pass_bar"] and dn["hit_pass_bar"]),
+    "hit_stretch_bar_both": bool(up["hit_stretch_bar"] and dn["hit_stretch_bar"]),
 }
 (d / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 print(json.dumps(summary, indent=2))
-if summary["hit_25pct_both"]:
-    print("TARGET HIT: both shapes >= 25% vs TRT XMMA")
+if summary["hit_stretch_bar_both"]:
+    print("STRETCH BAR HIT: both shapes <= 0.75 x TRT")
+elif summary["hit_pass_bar_both"]:
+    print("PASS BAR HIT: both shapes >= 25% gain vs TRT XMMA")
 else:
     print(f"TARGET MISS: min gain vs TRT = {summary['min_gain_vs_trt_pct']}%")
+    print(f"  up   {up['duration_us']} us (pass <= {up['pass_bar_us']}, stretch <= {up['stretch_bar_us']})")
+    print(f"  down {dn['duration_us']} us (pass <= {dn['pass_bar_us']}, stretch <= {dn['stretch_bar_us']})")
 PY
 else
   run_shape "$SHAPE_ARG"

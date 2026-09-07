@@ -20,7 +20,7 @@ GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head
 echo "HOST_GPU=${GPU_NAME:-unknown}"
 ok "recorded host GPU (${GPU_NAME:-unknown}); L4 is not required"
 
-unset CONTAINER CONTAINER_ID CONTAINER_NAME
+unset CONTAINER CONTAINER_ID CONTAINER_NAME OPT_LOOP_EXEC
 rm -f "$SCRIPT_DIR/container.env"
 
 set +e
