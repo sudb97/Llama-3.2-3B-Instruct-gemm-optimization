@@ -44,8 +44,10 @@ Corrected bars: PASS ≤ 149.68 / 145.52 µs, STRETCH ≤ 140.33 / 136.43 µs.
 | FP16 baseline | down | 187.90 | +19.0% | **−3.2%** | no | no |
 | FP16 best (no-atomics) | up | 181.95 | +23.1% | **+2.8%** | no | no |
 | FP16 best (no-atomics) | down | 181.70 | +23.1% | **+0.1%** | no | no |
-| **FP8 E4M3** | up | **110.40** | +102.8% | **+69.5%** | **YES** | **YES** |
-| **FP8 E4M3** | down | **111.42** | +100.7% | **+63.3%** | **YES** | **YES** |
+| FP8 E4M3 (parent-verify, dummy W) | up | 110.40 | +102.8% | +69.5% | YES | YES |
+| FP8 E4M3 (parent-verify, dummy W) | down | 111.42 | +100.7% | +63.3% | YES | YES |
+| **FP8 E4M3 (sign-off, real W, ECC off)** | up | **109.92** | — | **+70.2%** | **YES** | **YES** |
+| **FP8 E4M3 (sign-off, real W, ECC off)** | down | **113.15** | — | **+60.8%** | **YES** | **YES** |
 
 ## What this means
 
@@ -58,9 +60,9 @@ Corrected bars: PASS ≤ 149.68 / 145.52 µs, STRETCH ≤ 140.33 / 136.43 µs.
    ~7–9%. TRT's real amplification is **1.0006**. There were never excess bytes
    to recover — which is exactly why months of FP16 work landed at parity. Both
    kernels move the same 50.33 MB at ~90% of peak, so both take ~185 µs.
-3. **FP8 survives and is the only real win.** +69.5% / +63.3%, both bars met
-   with margin. Its win shrinks from ~2.0× to ~1.6–1.7× but does not depend on
-   the disputed reference — that was predicted in tick 3 and has now held.
+3. **FP8 survives and is the only real win.** Official ECC-off sign-off (real W):
+   **109.92 / 113.15 µs** vs TRT **187.1 / 181.9 µs** (**+70.2% / +60.8%**),
+   `dram/(L2_miss×32)=1.0000`. Both bars met with margin.
 4. **Both bars are now below the FP16 roofline floor** (149.7 / 145.5 vs
    167.8 µs), so no FP16 kernel could ever have passed. The PASS/STRETCH
    distinction is moot.
@@ -78,9 +80,5 @@ have prevented all of this.
 
 ## Remaining gate
 
-FP8 accuracy on real weights is still under validation. `cos_fp16 = 0.99972`
-came from synthetic `Uniform(-0.25, 0.25)` weights — the best case for
-per-tensor E4M3 with no scale factor. Until that returns, **do not publish the
-FP8 speedup as production-ready.**
-
-Do not write `FINAL_REPORT.md` until it lands.
+FP8 accuracy on real weights is **CLOSED** (see `SIGNOFF.md`). Official latency
+quote is ECC-off vs ECC-off TRT: **109.92 / 113.15 µs** vs **187.1 / 181.9 µs**.

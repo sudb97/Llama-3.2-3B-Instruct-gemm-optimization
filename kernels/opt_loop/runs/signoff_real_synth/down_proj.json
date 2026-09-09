@@ -1,0 +1,22 @@
+{
+  "shape": "down_proj",
+  "kernel": "void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)",
+  "cc": "8.9",
+  "duration_us": 123.008,
+  "dram_bytes": 28095488,
+  "dram_mb": 28.095,
+  "amplification": 1.1164,
+  "dram_pct": 76.28,
+  "occupancy_pct": 11.95,
+  "ffma": 25165824.0,
+  "l2_sectors": 786989.0,
+  "l2_miss_sectors": 787644.0,
+  "dram_over_l2_miss": 1.1147,
+  "gain_vs_trt_pct": 47.88,
+  "gain_vs_gemv_fp16_pct": 52.75,
+  "hit_25pct_vs_trt": true,
+  "pass_bar_us": 145.52,
+  "stretch_bar_us": 136.43,
+  "hit_pass_bar": true,
+  "hit_stretch_bar": true
+}

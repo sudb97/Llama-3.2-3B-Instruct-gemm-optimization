@@ -1,0 +1,12 @@
+==PROF== Connected to process 1942 (/workspace/opt-worktrees/fp8/kernels/gemv_fp8)
+[oncereal] /workspace/.fp8_tools/weights/L13.down_proj.K8192.N3072.fp16.bin K=8192 N=3072 tpr/R1 grid=48 ku=4 e4m3_bytes=25165824 unique=25165824
+==PROF== Disconnected from process 1942
+"ID","Process ID","Process Name","Host Name","Kernel Name","Context","Stream","Block Size","Grid Size","Device","CC","Section Name","Metric Name","Metric Unit","Metric Value"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","dram__bytes_read.sum","byte","28095488"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","dram__bytes_write.sum","byte","0"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","dram__throughput.avg.pct_of_peak_sustained_elapsed","%","76.28"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","gpu__time_duration.sum","ns","123008"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","lts__t_sectors_aperture_device_lookup_miss.sum","sector","787644"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","lts__t_sectors_srcunit_tex_op_read.sum","sector","786989"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","sm__sass_thread_inst_executed_op_ffma_pred_on.sum","inst","25165824"
+"0","1942","gemv_fp8","127.0.0.1","void gemv_chunk_kernel<192, 1, 1, 4>(const uint4 *, const __half *, float *, int, int, int)","1","7","(192, 1, 1)","(48, 1, 1)","0","8.9","Command line profiler metrics","sm__warps_active.avg.pct_of_peak_sustained_active","%","11.95"

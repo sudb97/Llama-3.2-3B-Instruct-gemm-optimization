@@ -33,6 +33,7 @@ METRIC_ALIASES = {
     "gpu__time_duration.sum": "duration_ns",
     "dram__throughput.avg.pct_of_peak_sustained_elapsed": "dram_pct",
     "lts__t_sectors_srcunit_tex_op_read.sum": "l2_sectors",
+    "lts__t_sectors_aperture_device_lookup_miss.sum": "l2_miss_sectors",
     "sm__warps_active.avg.pct_of_peak_sustained_active": "occupancy_pct",
     "sm__sass_thread_inst_executed_op_ffma_pred_on.sum": "ffma",
 }
@@ -80,6 +81,12 @@ def summarize(raw: dict, shape: str, unique_bytes: float) -> dict:
         "occupancy_pct": raw.get("occupancy_pct"),
         "ffma": raw.get("ffma"),
         "l2_sectors": raw.get("l2_sectors"),
+        "l2_miss_sectors": raw.get("l2_miss_sectors"),
+        "dram_over_l2_miss": (
+            round(dram / (raw["l2_miss_sectors"] * 32.0), 4)
+            if dram and raw.get("l2_miss_sectors")
+            else None
+        ),
         "gain_vs_trt_pct": round(gain_trt, 2) if gain_trt is not None else None,
         "gain_vs_gemv_fp16_pct": round(gain_gemv, 2) if gain_gemv is not None else None,
         "hit_25pct_vs_trt": bool(gain_trt is not None and gain_trt >= 25.0),

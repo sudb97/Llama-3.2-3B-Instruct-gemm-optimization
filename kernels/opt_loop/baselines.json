@@ -28,9 +28,9 @@
   },
 
   "gemv_fp8_e4m3": {
-    "_note": "Parent-verified on a verified-idle GPU. Amplification is vs FP8 unique bytes; vs FP16 unique it is 0.501x. ACCURACY NOT YET VALIDATED ON REAL WEIGHTS - see open_risks.",
-    "up_proj": { "duration_us": 110.40, "dram_read_mb": 25.215, "amplification_vs_fp8": 1.0019, "amplification_vs_fp16": 0.5010, "dram_pct": 76.30, "gain_vs_trt_pct": 69.5 },
-    "down_proj": { "duration_us": 111.42, "dram_read_mb": 25.205, "amplification_vs_fp8": 1.0015, "amplification_vs_fp16": 0.5008, "dram_pct": 75.54, "gain_vs_trt_pct": 63.3 }
+    "_note": "Official 2026-09-10 sign-off: real ONNX W + synth x, idle L4, ECC Disabled (same as TRT). dram/(L2_miss×32)=1.0000. Amplification vs FP8 unique bytes; vs FP16 unique it is 0.501x. Parent-verify dummy-W was 110.40/111.42 us.",
+    "up_proj": { "duration_us": 109.92, "dram_read_mb": 25.215, "amplification_vs_fp8": 1.0020, "amplification_vs_fp16": 0.5010, "dram_pct": 76.62, "gain_vs_trt_pct": 70.2, "dram_over_l2_miss": 1.0 },
+    "down_proj": { "duration_us": 113.152, "dram_read_mb": 25.205, "amplification_vs_fp8": 1.0015, "amplification_vs_fp16": 0.5008, "dram_pct": 74.43, "gain_vs_trt_pct": 60.8, "dram_over_l2_miss": 1.0 }
   },
 
   "superseded_measurements": {
@@ -50,11 +50,11 @@
     "_note": "Bars recomputed against the CORRECTED reference. Both now fall BELOW the 167.8 us FP16 roofline floor, so neither is reachable in FP16 by any means. The definition-A / definition-B distinction is moot.",
     "pass_bar_us": { "up_proj": 149.68, "down_proj": 145.52 },
     "stretch_bar_us": { "up_proj": 140.33, "down_proj": 136.43 },
-    "status": "MET by FP8 only (110.40 / 111.42 us). FP16 baseline is slower than TRT; FP16 best is at parity."
+    "status": "MET by FP8 only (109.92 / 113.15 us, ECC off, real W). FP16 baseline is slower than TRT; FP16 best is at parity."
   },
 
   "open_risks": {
-    "fp8_accuracy_on_real_weights": "OPEN. cos_fp16 = 0.99972 was measured on synthetic Uniform(-0.25, 0.25) weights, the best case for per-tensor E4M3 with no scale factor. Real weights are heavy-tailed. Under validation.",
+    "fp8_accuracy_on_real_weights": "CLOSED 2026-09-09. GPU cosine vs FP16 >= 0.99933 on real W + synth x (layers 0/13/27). 84/84 numpy min 0.99925. See SIGNOFF.md.",
     "fp16_track_conclusion": "The FP16 optimization thesis (recover TRT's 1.20x amplification) is VOID. TRT amplification is 1.0006x; there were never excess bytes to recover. This is why FP16 work landed at parity."
   }
 }

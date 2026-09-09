@@ -4,22 +4,22 @@ overview: Build a TensorRT engine for Llama-3.2-3B on an NVIDIA L4, profile it t
 todos:
   - id: env
     content: Provision L4 (cloud), install CUDA 12.x, TensorRT 10.x, CUTLASS 3.x, Nsight Compute/Systems; verify FP8 GEMM sample runs on SM89.
-    status: in_progress
+    status: completed
   - id: baseline
     content: Download Llama-3.2-3B-Instruct, build a baseline TensorRT engine, run a latency/throughput benchmark for prefill and decode.
-    status: pending
+    status: completed
   - id: profile
     content: Profile with Nsight Systems/Compute and the editable timing cache (kEDITABLE_TIMING_CACHE) to identify the compute-dominant decode GEMM and capture its exact shape and the auto-selected tactic name.
-    status: pending
+    status: completed
   - id: tactic-swap
     content: "Demonstrate the 'replace a tactic' concept cheaply: use ITimingCache::update to force a different existing tactic for that layer, rebuild, and record the latency effect."
-    status: pending
+    status: cancelled
   - id: micronet
     content: Build a standalone single-MatMul TensorRT network using the real decode shapes to serve as the clean microbenchmark baseline.
     status: pending
   - id: kernel
     content: Write a custom CUTLASS/CUDA FP8 (or weight-only) GEMM kernel specialized for the skinny decode shapes on SM89; tune tile/stage/cluster config.
-    status: pending
+    status: completed
   - id: plugin
     content: Wrap the kernel as an IPluginV3 TensorRT plugin (C++ + CMake), build the shared library, and register it.
     status: pending
@@ -28,7 +28,7 @@ todos:
     status: pending
   - id: validate
     content: Validate correctness (output cosine similarity + small downstream eval for parity) and benchmark speedup vs baseline tactic with Nsight roofline/occupancy evidence.
-    status: pending
+    status: in_progress
   - id: package
     content: "Package for CV: repo structure, results table, benchmark plots, reproducible scripts, README, and a short writeup/blog post."
     status: pending

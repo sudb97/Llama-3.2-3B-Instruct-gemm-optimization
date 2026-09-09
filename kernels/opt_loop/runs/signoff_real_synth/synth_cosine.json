@@ -1,0 +1,110 @@
+[
+  {
+    "layer": 0,
+    "proj": "gate_proj",
+    "family": "gaussian",
+    "cos_none": 0.9994171144781236,
+    "x_rms": 0.13062770972316742,
+    "x_kurtosis": 2.990250092740924,
+    "w_absmax": 0.59375
+  },
+  {
+    "layer": 0,
+    "proj": "up_proj",
+    "family": "gaussian",
+    "cos_none": 0.9993404096684404,
+    "x_rms": 0.13062734312411803,
+    "x_kurtosis": 3.1219924620483357,
+    "w_absmax": 0.283203125
+  },
+  {
+    "layer": 0,
+    "proj": "down_proj",
+    "family": "student_t",
+    "cos_none": 0.999396234465032,
+    "x_rms": 0.015362925513481507,
+    "x_kurtosis": 11.277598213665264,
+    "w_absmax": 0.7890625
+  },
+  {
+    "layer": 1,
+    "proj": "gate_proj",
+    "family": "gaussian",
+    "cos_none": 0.9994461569832913,
+    "x_rms": 0.13832800689583097,
+    "x_kurtosis": 3.0967746518114745,
+    "w_absmax": 0.62109375
+  },
+  {
+    "layer": 1,
+    "proj": "up_proj",
+    "family": "gaussian",
+    "cos_none": 0.9993469834735763,
+    "x_rms": 0.13833132381212465,
+    "x_kurtosis": 3.0534814564687927,
+    "w_absmax": 0.75390625
+  },
+  {
+    "layer": 1,
+    "proj": "down_proj",
+    "family": "student_t",
+    "cos_none": 0.999380824305389,
+    "x_rms": 0.018593782419195452,
+    "x_kurtosis": 11.164648663867863,
+    "w_absmax": 0.68359375
+  },
+  {
+    "layer": 13,
+    "proj": "gate_proj",
+    "family": "gaussian",
+    "cos_none": 0.9994164290868303,
+    "x_rms": 0.27864481427780463,
+    "x_kurtosis": 3.1091338220679994,
+    "w_absmax": 0.62890625
+  },
+  {
+    "layer": 13,
+    "proj": "up_proj",
+    "family": "gaussian",
+    "cos_none": 0.9993579856644238,
+    "x_rms": 0.2786445956398576,
+    "x_kurtosis": 2.9893162797243016,
+    "w_absmax": 0.390625
+  },
+  {
+    "layer": 13,
+    "proj": "down_proj",
+    "family": "student_t",
+    "cos_none": 0.999331605856928,
+    "x_rms": 0.05161783891183236,
+    "x_kurtosis": 11.47267564107015,
+    "w_absmax": 0.828125
+  },
+  {
+    "layer": 27,
+    "proj": "gate_proj",
+    "family": "gaussian",
+    "cos_none": 0.9994924628713439,
+    "x_rms": 0.4007193770901072,
+    "x_kurtosis": 2.9223394494473696,
+    "w_absmax": 0.8515625
+  },
+  {
+    "layer": 27,
+    "proj": "up_proj",
+    "family": "gaussian",
+    "cos_none": 0.9994783821531676,
+    "x_rms": 0.40072583413791596,
+    "x_kurtosis": 2.9810724406837616,
+    "w_absmax": 0.90625
+  },
+  {
+    "layer": 27,
+    "proj": "down_proj",
+    "family": "student_t",
+    "cos_none": 0.9993313999545896,
+    "x_rms": 0.2690760540517605,
+    "x_kurtosis": 11.807769475563198,
+    "w_absmax": 0.65234375
+  }
+]

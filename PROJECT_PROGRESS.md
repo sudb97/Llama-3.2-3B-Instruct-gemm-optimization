@@ -498,14 +498,64 @@ Harness in `kernels/opt_loop/`. Bind a running profiler container with
 Target: ≥25% vs TRT XMMA on both MLP shapes. Levers: DRAM % → 100%, amp → 1.00×,
 then FP8. See `WORKFLOW.md` and `COMMANDS.md`.
 
-## Next steps (after 2026-08-19)
+### 2026-09-07 — TRT reference corrected (idle GPU, ECC off)
 
-FP16 kernel work is done and the remaining lever is bytes, not scheduling.
+The Jul-2026 TRT pair **223.9 / 223.6 µs** (amp 1.20×) does not reproduce on a
+verified-idle L4. Re-measured twice on `sm80_xmma_gemm_..._tilesize32x32x64_stage6_...`
+inside `engines/baseline_decode.engine` (decode batch=1, seq=1, past=128):
 
-1. **L4 opt loop** (`kernels/opt_loop/WORKFLOW.md`) — DRAM ~100%, amp ~1.00×, then FP8, until ≥25% vs TRT XMMA. Measure only on L4.
-2. **IPluginV3 wrap** of `kernels/gemv_fp16.cu`, then swap `up_proj` (highest decode share) in the full engine. Expect ~1.04× on that layer; end-to-end decode gain will be well under that since MLP GEMMs are 69.9% of the step.
-3. **FP8 / weight-only quantization** — the only remaining lever. Halving weight bytes is worth ~2× on a DRAM-bound kernel, an order more than the 1.04–1.07× access-pattern win. Reuse the same split-K structure and add a dequant in the inner loop; validate parity with cosine sim + a small eval.
-4. **Skip `ITimingCache::update`** as a primary path. Optional later as a short negative result showing other TRT FP16 tactics do not beat this XMMA kernel.
+| shape | superseded | adopted |
+|---|---|---|
+| `up_proj` / `gate_proj` | 223.9 µs, amp 1.204 | **187.1 µs**, amp **1.0006** |
+| `down_proj` | 223.6 µs, amp 1.210 | **181.9 µs**, amp **1.0007** |
+
+Root cause: **contention**, not ECC. `dram__bytes_read.sum` is device-wide;
+`lts__t_sectors_aperture_device_lookup_miss` is per-kernel. Healthy capture:
+`dram / (L2_miss × 32) = 1.0000`. Full write-up: `kernels/opt_loop/TRT_RECHECK.md`.
+
+FP16 GEMV vs this reference is **slower or at parity**. PASS (≤149.68 / 145.52 µs)
+and STRETCH (≤140.33 / 136.43 µs) both sit below the 167.8 µs FP16 roofline, so
+only FP8 can clear them.
+
+### 2026-09-09 — FP8 accuracy on real Llama-3.2-3B weights
+
+Weight-only E4M3, no scale tensor, split-K full-row, register dequant
+`__nv_cvt_fp8x2_to_halfraw2` → fp32 FMA. No `|w| > 448`.
+
+GPU shipped config, real ONNX W + moment-matched synth x (layers 0 / 13 / 27):
+cosine vs FP16 ≥ **0.99933**. Layer 13 captured decode x: **0.99942 / 0.99937**.
+84/84 tensors numpy no-scale min **0.99925** (L25 `down_proj`). Gate closed.
+
+### 2026-09-10 — Official ECC-off apples-to-apples vs TensorRT
+
+Disabled ECC (`nvidia-smi -e 0` + GPU reset), confirmed idle, clocks 2040 / 6251 MHz,
+then cold ncu of the shipped FP8 kernel on real L13 W + synth x
+(`regex:gemv_chunk`, `--launch-skip 0 --launch-count 1`).
+
+| | `up_proj` | `down_proj` |
+|---|---|---|
+| **FP8 GEMV** | **109.920 µs** | **113.152 µs** |
+| TRT XMMA (ECC off) | 187.1 µs | 181.9 µs |
+| vs TRT | **+70.2%** | **+60.8%** |
+| Amp vs 25.166 MB unique | 1.0020× | 1.0015× |
+| `dram / (L2_miss × 32)` | **1.0000** | **1.0000** |
+| PASS / STRETCH | YES / YES | YES / YES |
+
+Do not cite the 2026-09-09 ECC-on pair (119.42 / 123.01 µs, ratio ~1.125) against
+ECC-off TRT. Sign-off: `kernels/opt_loop/SIGNOFF.md`. Raw:
+`kernels/opt_loop/runs/signoff_ecc_off/`.
+
+---
+
+## Next steps
+
+Kernel latency and kernel-level accuracy vs TRT are closed. Remaining:
+
+1. **IPluginV3 wrap** of `kernels/gemv_fp8.cu`, then swap `up_proj` / `down_proj`
+   in a micronet and best-effort the full decode engine.
+2. **Engine-level validate** — downstream eval / perplexity after the plugin swap.
+3. **CV package** — results table, plots, README, short write-up.
+4. **Skip `ITimingCache::update`** as a primary path (optional negative-result demo).
 
 ---
 

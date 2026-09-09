@@ -25,10 +25,13 @@ Only append rows produced by `measure.sh` (record GPU + `CONTAINER`).
 | dram_probe_readonly | L4 | all arithmetic deleted | 195.5 | — | 88.30 | — | — | — | — | — | **slower than real kernel → memory path is the limit** |
 | fp8_iter01 | L4 | E4M3 split-K | 121.4 | — | 63–69 | — | 133.2 | — | — | — | agent; already past target |
 | **fp8_iter02** | L4 | E4M3, retuned grid | **110.98** | 1.0019* | 75.91 | **101.76%** | **111.78** | 1.0015* | 75.32 | **100.04%** | agent, n=2 |
-| **parent_verify_fp8** | L4 | E4M3, retuned grid | **110.40** | **1.0019*** | **76.30** | **102.81%** | **111.42** | **1.0015*** | **75.54** | **100.67%** | **parent-verified. STRETCH BAR HIT** |
+| **parent_verify_fp8** | L4 | E4M3, retuned grid | **110.40** | **1.0019*** | **76.30** | **102.81%** | **111.42** | **1.0015*** | **75.54** | **100.67%** | **parent-verified. STRETCH BAR HIT** (dummy W, ECC off) |
+| **signoff_ecc_off** | L4 | E4M3 shipped, real W + synth x | **109.92** | **1.0020*** | **76.62** | **+70.2%†** | **113.15** | **1.0015*** | **74.43** | **+60.8%†** | **2026-09-10. ECC Disabled. idle. dram/(L2_miss×32)=1.0000. official vs TRT** |
 
 \* FP8 amplification is vs 25,165,824 unique FP8 bytes. Versus the original
 50,331,648 FP16 bytes it is **0.501×** — the stream genuinely halved.
+† `signoff_ecc_off` gains are vs the **corrected** TRT 187.1 / 181.9 µs (ECC off).
+The vs-TRT column on earlier FP8 rows is still vs the superseded 223.9 / 223.6 pair.
 
 ## Correction — 2026-09-07 (baseline was wrong by ~12 pp)
 
@@ -106,7 +109,8 @@ Both are **below** the 167.8 µs FP16 roofline floor, so no FP16 kernel can pass
 |---|---|---|---|---|---|---|
 | FP16 baseline | 192.40 | **−2.7%** | 187.90 | **−3.2%** | no | no |
 | FP16 best (no-atomics) | 181.95 | **+2.8%** | 181.70 | **+0.1%** | no | no |
-| **FP8 E4M3** | **110.40** | **+69.5%** | **111.42** | **+63.3%** | **YES** | **YES** |
+| FP8 E4M3 (parent-verify, dummy W) | 110.40 | +69.5% | 111.42 | +63.3% | YES | YES |
+| **FP8 E4M3 (sign-off, real W, ECC off)** | **109.92** | **+70.2%** | **113.15** | **+60.8%** | **YES** | **YES** |
 
 The FP16 track never beat TensorRT: the baseline is slower than XMMA and the
 best candidate is at parity. The +16–23% previously recorded was entirely an
@@ -134,8 +138,8 @@ and confirm `dram__bytes_read.sum ÷ (L2_miss_sectors × 32) = 1.0000`.
    on an idle GPU: 187.1 / 181.9 µs, amplification 1.0006 / 1.0007. The tick-3
    prediction held — FP8 stayed well past target (+69.5% / +63.3%) while the
    FP16 claim collapsed to parity, exactly as the sensitivity analysis said.
-2. **FP8 accuracy validated only on synthetic uniform weights.** `fill_host`
-   uses `Uniform(-0.25, 0.25)` — the best case for per-tensor E4M3, which this
-   kernel applies with **no scale factor**. Real weights are heavy-tailed, so
-   `cos_fp16 = 0.99972` is optimistic and is not a production accuracy number.
-   **STILL OPEN** — gates `FINAL_REPORT.md`.
+2. ~~FP8 accuracy validated only on synthetic uniform weights.~~ **CLOSED 2026-09-09.**
+   Real ONNX weights + moment-matched synth x and captured decode x; GPU cosine
+   vs FP16 ≥ 0.99933. 84/84 tensors numpy min 0.99925. See `SIGNOFF.md`.
+3. ~~FP8 vs TRT mixed ECC modes.~~ **CLOSED 2026-09-10.** ECC Disabled for both.
+   Official: **109.92 / 113.15 µs** vs TRT **187.1 / 181.9 µs** (`dram/(L2_miss×32)=1.0000`).

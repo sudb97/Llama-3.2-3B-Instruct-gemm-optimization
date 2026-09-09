@@ -1,0 +1,14 @@
+
+=== checkreal /workspace/.fp8_tools/weights/L13.up_proj.K3072.N8192.fp16.bin [no scale (shipped)] ===
+    K=3072 N=8192  min=-0.390625 max=+0.320312 mean=+6.536e-06 std=0.017915 amax/std=21.80
+    x source: /workspace/.fp8_tools/activations/L13.up_proj.K3072.x.fp16.bin  rms=0.27865 absmax=1.63184 kurtosis=5.2
+    |w| below E4M3 smallest normal (2^-6): 62.98%   |w|>448 (would saturate): 0
+  tpr/R1         grid=20   ku=4   cos_e4m3=0.99999998  cos_fp16=0.99942039  max_abs_e4=0.0004795 <- shipped config
+  WORST over shipped config: cos_e4m3=0.99999998 [PASS]  cos_fp16=0.99942039 [PASS]
+
+=== checkreal /workspace/.fp8_tools/weights/L13.down_proj.K8192.N3072.fp16.bin [no scale (shipped)] ===
+    K=8192 N=3072  min=-0.828125 max=+0.396484 mean=-1.671e-06 std=0.017623 amax/std=46.99
+    x source: /workspace/.fp8_tools/activations/L13.down_proj.K8192.x.fp16.bin  rms=0.05162 absmax=1.04395 kurtosis=49.8
+    |w| below E4M3 smallest normal (2^-6): 63.73%   |w|>448 (would saturate): 0
+  tpr/R1         grid=48   ku=4   cos_e4m3=0.99999998  cos_fp16=0.99936683  max_abs_e4=0.0001072 <- shipped config
+  WORST over shipped config: cos_e4m3=0.99999998 [PASS]  cos_fp16=0.99936683 [PASS]

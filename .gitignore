@@ -22,6 +22,7 @@ plugin/**/*.so
 kernels/build/
 kernels/**/*.o
 kernels/gemv_fp16
+kernels/gemv_fp8
 kernels/mem_pattern_bench
 kernels/mem_pattern_bench_*
 
@@ -39,7 +40,12 @@ kernels/opt_loop/loop.pid
 kernels/opt_loop/loop_state.json
 
 # Per-iteration ncu dumps (log is EXPERIMENT_LOG.md)
-kernels/opt_loop/runs/
+kernels/opt_loop/runs/**
+!kernels/opt_loop/runs/signoff_ecc_off/
+!kernels/opt_loop/runs/signoff_ecc_off/**
+!kernels/opt_loop/runs/signoff_real_synth/
+!kernels/opt_loop/runs/signoff_real_synth/**
+kernels/opt_loop/.ncu.lock
 
 # Python
 __pycache__/

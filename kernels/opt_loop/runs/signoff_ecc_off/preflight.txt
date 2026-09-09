@@ -1,0 +1,4 @@
+=== preflight ===
+name, ecc.mode.current, ecc.mode.pending, clocks.current.sm [MHz], clocks.current.memory [MHz]
+NVIDIA L4, Disabled, Disabled, 2040 MHz, 6251 MHz
+pid, process_name, used_gpu_memory [MiB]

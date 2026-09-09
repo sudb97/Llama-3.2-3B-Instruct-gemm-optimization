@@ -41,38 +41,39 @@ Update the checkboxes as you go — this file is the source of truth across sess
       - [x] Recorded full results + decode-vs-prefill contrast in `PROJECT_PROGRESS.md`
 - [x] **profile** — Profile decode GEMMs with nsys/ncu. Tactic:
       `sm80_xmma_gemm_..._tilesize32x32x64_stage6_...`. Occupancy 16.67% (shared-mem,
-      2 blocks/SM). DRAM 89–93% of peak. L2 sector excess 0%. DRAM amplification
-      1.20–1.21×. dumpProfile 119 vs 236 GB/s was an artifact. Timing-cache inspect
-      not needed for tactic name (nsys already had it).
+      2 blocks/SM). DRAM 89–93% of peak. L2 sector excess 0%. The Jul-2026
+      1.20–1.21× DRAM amplification was **GPU contention**, not the kernel
+      (idle re-measure 2026-09-07: amp **1.0006 / 1.0007**, **187.1 / 181.9 µs**).
+      dumpProfile 119 vs 236 GB/s was an artifact. See `TRT_RECHECK.md`.
 - [x] **mem-pattern** — Isolated DRAM access patterns in project Docker `489257d94e91`
       on L4. Contiguous 1.10–1.13×, strided 1.14×, fragmented 1.41–1.45×. Real kernel
       sits at 1.20–1.21×. Results: `kernels/mem_pattern_results_l4_container.md`.
 - [ ] **tactic-swap** — Deferred. Other TRT FP16 tactics are the same XMMA family
       already at DRAM peak. Optional later as a short negative-result demo.
 - [x] **kernel (FP16 GEMV)** — `kernels/gemv_fp16.cu`. Split-K, full-row blocks,
-      register accumulators, no B-tile staging. Beats the XMMA tactic
-      **1.039×** (`up_proj` 223.9→215.6 µs) and **1.070×** (`down_proj`
-      223.6→208.9 µs) at equal ~90% DRAM saturation. Amplification 1.132×/1.118×
-      — at the contiguous microbench floor, so FP16 access-pattern work is
-      exhausted. Cosine 0.99999998 vs fp64 CPU ref, 32/32 configs.
-      Results: `kernels/gemv_results_l4_container.md`.
-      - Small grids win (14 blocks > 58 > 464): past DRAM saturation every extra
-        block is another concurrent stream to interleave.
-      - Occupancy was not the lever — 16% vs 65% occupancy differ by <2 µs at the
-        same grid; the win came entirely from the byte reduction.
+      register accumulators, no B-tile staging. Access-pattern work is exhausted
+      (amp ~1.00× on an idle GPU). **Does not beat corrected TRT** (192.4 / 187.9 µs
+      vs 187.1 / 181.9 µs). The old 215.6 / 208.9 vs 223.9 / 223.6 pair was a
+      contended capture — see `kernels/opt_loop/TRT_RECHECK.md`.
+      Cosine 0.99999998 vs fp64 CPU ref. Results: `kernels/gemv_results_l4_container.md`.
 - [ ] **micronet** — Standalone single-MatMul TensorRT network at real decode shapes
       (M=1..8, K=3072, N=8192 and K=8192, N=3072) for a clean plugin comparison.
-- [ ] **opt-loop** — Iterate remaining GEMV headroom until ≥25% vs
-      TRT XMMA: DRAM ~100%, amp ~1.00×, then FP8. Harness:
-      `kernels/opt_loop/WORKFLOW.md` + `CONTAINER=<id> measure.sh`.
-- [ ] **kernel-fp8** — FP8 / weight-only quantization on the same split-K structure.
-      Primary path past ~25% if FP16 A+B miss the unique-byte / 300 GB/s floor.
+- [x] **opt-loop** — Closed on L4. Amp ~1.00× on idle GPU (no TRT byte waste to
+      recover). FP16 cannot hit PASS (bars sit below the 167.8 µs FP16 roofline).
+      FP8 is the only lever that cleared ≥25% vs TRT. Harness:
+      `kernels/opt_loop/WORKFLOW.md`. Log: `EXPERIMENT_LOG.md`.
+- [x] **kernel-fp8** — Weight-only E4M3 split-K GEMV, `kernels/gemv_fp8.cu`.
+      Official **ECC-off** cold ncu vs ECC-off TRT XMMA (idle L4, 2040/6251 MHz,
+      `dram/(L2_miss×32)=1.0000`): **109.92 / 113.15 µs** vs **187.1 / 181.9 µs**
+      (**+70.2% / +60.8%**). PASS and STRETCH met. Write-up: `kernels/opt_loop/SIGNOFF.md`.
 - [ ] **plugin** — Wrap the kernel as an `IPluginV3` TensorRT plugin (C++ + CMake),
       build the shared library, and register it.
 - [ ] **swap-build** — Swap the target layer for the plugin, rebuild the microbenchmark
       engine (and best-effort the full-model engine).
-- [ ] **validate** — Validate correctness (output cosine similarity + small downstream
-      eval for parity) and benchmark speedup vs baseline tactic with Nsight
-      roofline/occupancy evidence.
+- [x] **validate (kernel)** — Cosine vs FP16 ≥ 0.999 on real Llama-3.2-3B ONNX
+      weights (GPU shipped config, synth x + captured decode x). 84/84 tensors
+      numpy min 0.99925. Nsight vs TRT on idle ECC-off L4. Details: `SIGNOFF.md`.
+- [ ] **validate (engine)** — Downstream eval / perplexity and full-engine plugin
+      swap still open (needs `plugin` + `swap-build`).
 - [ ] **package** — Package for CV: repo structure, results table, benchmark plots,
       reproducible scripts, README, and a short writeup/blog post.
